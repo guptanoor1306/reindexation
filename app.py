@@ -15,7 +15,7 @@ import imagehash
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
-# ── Load secrets and initialize clients ──
+# ── Load secrets & initialize clients ──
 YT_KEY       = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY   = st.secrets["OPENAI"]["API_KEY"]
 gcp_sa_json  = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
@@ -94,98 +94,101 @@ content_type    = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Sho
 num_matches     = st.sidebar.number_input("Results to show", 1, 10, 5)
 primary_keyword = st.sidebar.text_input("Primary keyword (fallback)")
 
-if channel_id:
-    # 1) Load your uploads
-    with st.spinner("Loading your uploads…"):
-        vid_ids = fetch_my_videos(channel_id)
-        df      = fetch_video_details(vid_ids)
+# ── Guard #1: need a channel ID ──
+if not channel_id:
+    st.info("Please enter your YouTube Channel ID in the sidebar to begin.")
+    st.stop()
 
-    # 2) Filter by duration bucket
-    want_short = content_type.startswith("Shorts")
-    df         = df[df["type"] == ("Short" if want_short else "Long-Form")]
+# ── Load & display your videos ──
+with st.spinner("Loading your uploads…"):
+    vid_ids = fetch_my_videos(channel_id)
+    if not vid_ids:
+        st.error("No videos found for this Channel ID.")
+        st.stop()
+    df = fetch_video_details(vid_ids)
 
-    # 3) Select one of your videos
-    sel_title = st.selectbox("Pick one of your videos", df["title"])
-    src       = df[df["title"] == sel_title].iloc[0]
+# ── Guard #2: filter by type and need at least one video ──
+want_short = content_type.startswith("Shorts")
+df         = df[df["type"] == ("Short" if want_short else "Long-Form")]
+if df.empty:
+    st.warning(f"No {content_type} found in your uploads.")
+    st.stop()
 
-    # Precompute source embedding & thumbnail hash & OCR text
-    emb_src   = get_embedding(src["title"])
-    hash_src  = hash_image(src["thumb"])
-    text_src  = extract_text_cloud_vision(src["thumb"])
+# ── Let user pick one of their videos ──
+sel_title = st.selectbox("Pick one of your videos", df["title"])
+if not sel_title:
+    st.info("Please select a video from the list above.")
+    st.stop()
 
-    if st.button("Run Title & Thumbnail Match"):
-        # ── Table 1: Title Matching ──
-        # a) Semantic search on your title
-        resp = requests.get(
+# ── Precompute source signals ──
+src      = df[df["title"] == sel_title].iloc[0]
+emb_src  = get_embedding(src["title"])
+hash_src = hash_image(src["thumb"])
+text_src = extract_text_cloud_vision(src["thumb"])
+
+# ── Only run matching on button click ──
+if st.button("Run Title & Thumbnail Match"):
+    # ── Table 1: Title Matching ──
+    resp = requests.get(
+        "https://www.googleapis.com/youtube/v3/search",
+        params={
+            "part":       "snippet",
+            "q":          src["title"],
+            "type":       "video",
+            "order":      "viewCount",
+            "maxResults": 50,
+            "key":        YT_KEY
+        }
+    ).json().get("items", [])
+    cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
+    details  = fetch_video_details(cand_ids)
+    details["sem_sim"] = details["title"].map(
+        lambda t: cosine_sim(emb_src, get_embedding(t))
+    )
+    details = details.sort_values("sem_sim", ascending=False)
+
+    # fallback if no semantic hits
+    if details["sem_sim"].max() == 0 and primary_keyword:
+        resp     = requests.get(
             "https://www.googleapis.com/youtube/v3/search",
             params={
                 "part":       "snippet",
-                "q":          src["title"],
+                "q":          primary_keyword,
                 "type":       "video",
                 "order":      "viewCount",
                 "maxResults": 50,
                 "key":        YT_KEY
             }
         ).json().get("items", [])
-        cand_ids = [
-            it["id"]["videoId"]
-            for it in resp
-            if it["snippet"]["channelId"] != channel_id
-        ]
-        details = fetch_video_details(cand_ids)
+        cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
+        details  = fetch_video_details(cand_ids)
         details["sem_sim"] = details["title"].map(
             lambda t: cosine_sim(emb_src, get_embedding(t))
         )
         details = details.sort_values("sem_sim", ascending=False)
 
-        # b) Fallback keyword search if all semantic sims are zero
-        if details["sem_sim"].max() == 0 and primary_keyword:
-            resp     = requests.get(
-                "https://www.googleapis.com/youtube/v3/search",
-                params={
-                    "part":       "snippet",
-                    "q":          primary_keyword,
-                    "type":       "video",
-                    "order":      "viewCount",
-                    "maxResults": 50,
-                    "key":        YT_KEY
-                }
-            ).json().get("items", [])
-            cand_ids = [
-                it["id"]["videoId"]
-                for it in resp
-                if it["snippet"]["channelId"] != channel_id
-            ]
-            details = fetch_video_details(cand_ids)
-            details["sem_sim"] = details["title"].map(
-                lambda t: cosine_sim(emb_src, get_embedding(t))
-            )
-            details = details.sort_values("sem_sim", ascending=False)
+    top1 = details.head(num_matches)
 
-        top1 = details.head(num_matches)
+    st.subheader("Table 1 – Title Matches")
+    md1 = "| Title | Type | Views | SemMatch (%) |\n|---|:---:|---:|---:|\n"
+    for r in top1.itertuples():
+        link = f"https://youtu.be/{r.videoId}"
+        md1 += f"| [{r.title}]({link}) | {r.type} | {r.views:,} | {r.sem_sim:.1f}% |\n"
+    st.markdown(md1, unsafe_allow_html=True)
 
-        st.subheader("Table 1 – Title Matches")
-        md1 = "| Title | Type | Views | SemMatch (%) |\n|---|:---:|---:|---:|\n"
-        for r in top1.itertuples():
-            link = f"https://youtu.be/{r.videoId}"
-            md1 += f"| [{r.title}]({link}) | {r.type} | {r.views:,} | {r.sem_sim:.1f}% |\n"
-        st.markdown(md1, unsafe_allow_html=True)
-
-        # ── Table 2: Thumbnail Matching ──
-        st.subheader("Table 2 – Thumbnail Matches")
-        md2 = "| Title | TextMatch (%) | VisualMatch (%) |\n|---|---:|---:|\n"
-        for r in top1.itertuples():
-            # OCR text match
-            their_text = extract_text_cloud_vision(r.thumb)
-            txt_sim    = fuzz.ratio(text_src, their_text)
-            # visual hash match
-            hash2      = hash_image(r.thumb)
-            dist       = hash_src - hash2
-            vis_sim    = max(0, (1 - dist/64) * 100)
-            link       = f"https://youtu.be/{r.videoId}"
-            md2       += (
-                f"| [{r.title}]({link}) "
-                f"| {txt_sim:.1f}% "
-                f"| {vis_sim:.1f}% |\n"
-            )
-        st.markdown(md2, unsafe_allow_html=True)
+    # ── Table 2: Thumbnail Matching ──
+    st.subheader("Table 2 – Thumbnail Matches")
+    md2 = "| Title | TextMatch (%) | VisualMatch (%) |\n|---|---:|---:|\n"
+    for r in top1.itertuples():
+        their_text = extract_text_cloud_vision(r.thumb)
+        txt_sim    = fuzz.ratio(text_src, their_text)
+        hash2      = hash_image(r.thumb)
+        dist       = hash_src - hash2
+        vis_sim    = max(0, (1 - dist/64) * 100)
+        link       = f"https://youtu.be/{r.videoId}"
+        md2       += (
+            f"| [{r.title}]({link}) "
+            f"| {txt_sim:.1f}% "
+            f"| {vis_sim:.1f}% |\n"
+        )
+    st.markdown(md2, unsafe_allow_html=True)
