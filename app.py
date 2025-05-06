@@ -12,17 +12,18 @@ from rapidfuzz import fuzz
 from PIL import Image
 import imagehash
 
+# Page config
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
 # ── Load secrets & initialize clients ──
-YT_KEY       = st.secrets["YOUTUBE"]["API_KEY"]
-OPENAI_KEY   = st.secrets["OPENAI"]["API_KEY"]
-gcp_sa_json  = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
-gcp_creds    = service_account.Credentials.from_service_account_info(gcp_sa_json)
-vision_cli   = vision.ImageAnnotatorClient(credentials=gcp_creds)
-youtube      = build("youtube", "v3", developerKey=YT_KEY)
-openai_cli   = OpenAI(api_key=OPENAI_KEY)
+YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
+OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
+gcp_sa     = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
+gcp_creds  = service_account.Credentials.from_service_account_info(gcp_sa)
+vision_cli = vision.ImageAnnotatorClient(credentials=gcp_creds)
+youtube    = build("youtube", "v3", developerKey=YT_KEY)
+openai_cli = OpenAI(api_key=OPENAI_KEY)
 
 # ── Helper functions ──
 def parse_iso_duration(dur: str) -> int:
@@ -33,10 +34,8 @@ def parse_iso_duration(dur: str) -> int:
 @st.cache_data
 def fetch_my_videos(channel_id: str) -> list[str]:
     ids = []
-    req = youtube.search().list(
-        part="id", channelId=channel_id,
-        type="video", order="date", maxResults=50
-    )
+    req = youtube.search().list(part="id", channelId=channel_id,
+                                type="video", order="date", maxResults=50)
     while req:
         res = req.execute()
         ids += [item["id"]["videoId"] for item in res["items"]]
@@ -57,7 +56,7 @@ def fetch_video_details(video_ids: list[str]) -> pd.DataFrame:
             rows.append({
                 "videoId":     v["id"],
                 "title":       v["snippet"]["title"],
-                "description": v["snippet"].get("description", "") or "",
+                "description": v["snippet"].get("description","") or "",
                 "thumb":       v["snippet"]["thumbnails"]["high"]["url"],
                 "views":       int(v["statistics"].get("viewCount", 0)),
                 "type":        "Short" if sec <= 180 else "Long-Form"
@@ -66,11 +65,8 @@ def fetch_video_details(video_ids: list[str]) -> pd.DataFrame:
 
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
-    resp = openai_cli.embeddings.create(
-        model="text-embedding-ada-002",
-        input=text
-    )
-    emb = resp.data[0].embedding
+    resp = openai_cli.embeddings.create(model="text-embedding-ada-002", input=text)
+    emb  = resp.data[0].embedding
     return np.array(emb, dtype=np.float32)
 
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
@@ -84,7 +80,7 @@ def hash_image(url: str) -> imagehash.ImageHash:
 def extract_text_cloud_vision(url: str) -> str:
     image = vision.Image()
     image.source.image_uri = url
-    resp = vision_cli.text_detection(image=image)
+    resp  = vision_cli.text_detection(image=image)
     texts = resp.text_annotations
     return texts[0].description if texts else ""
 
@@ -94,39 +90,37 @@ content_type    = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Sho
 num_matches     = st.sidebar.number_input("Results to show", 1, 10, 5)
 primary_keyword = st.sidebar.text_input("Primary keyword (fallback)")
 
-# ── Guard #1: need a channel ID ──
+# ── Guards ──
 if not channel_id:
-    st.info("Please enter your YouTube Channel ID in the sidebar to begin.")
+    st.info("Please enter your YouTube Channel ID.")
     st.stop()
 
-# ── Load & display your videos ──
+# 1) Load and filter your uploads
 with st.spinner("Loading your uploads…"):
     vid_ids = fetch_my_videos(channel_id)
-    if not vid_ids:
-        st.error("No videos found for this Channel ID.")
-        st.stop()
+if not vid_ids:
+    st.error("No videos found for this Channel ID.")
+    st.stop()
+
+with st.spinner("Loading video details…"):
     df = fetch_video_details(vid_ids)
 
-# ── Guard #2: filter by type and need at least one video ──
 want_short = content_type.startswith("Shorts")
-df         = df[df["type"] == ("Short" if want_short else "Long-Form")]
-if df.empty:
-    st.warning(f"No {content_type} found in your uploads.")
+df_filtered = df[df["type"] == ("Short" if want_short else "Long-Form")]
+if df_filtered.empty:
+    st.warning(f"No {content_type} content found.")
     st.stop()
 
-# ── Let user pick one of their videos ──
-sel_title = st.selectbox("Pick one of your videos", df["title"])
-if not sel_title:
-    st.info("Please select a video from the list above.")
-    st.stop()
+# 2) Video selection
+sel_title = st.selectbox("Select one of your videos", df_filtered["title"].tolist())
+src = df_filtered[df_filtered["title"] == sel_title].iloc[0]
 
-# ── Precompute source signals ──
-src      = df[df["title"] == sel_title].iloc[0]
+# Precompute source signals
 emb_src  = get_embedding(src["title"])
 hash_src = hash_image(src["thumb"])
 text_src = extract_text_cloud_vision(src["thumb"])
 
-# ── Only run matching on button click ──
+# 3) Run matching on button click
 if st.button("Run Title & Thumbnail Match"):
     # ── Table 1: Title Matching ──
     resp = requests.get(
@@ -142,12 +136,10 @@ if st.button("Run Title & Thumbnail Match"):
     ).json().get("items", [])
     cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
     details  = fetch_video_details(cand_ids)
-    details["sem_sim"] = details["title"].map(
-        lambda t: cosine_sim(emb_src, get_embedding(t))
-    )
+    details["sem_sim"] = details["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     details = details.sort_values("sem_sim", ascending=False)
 
-    # fallback if no semantic hits
+    # Fallback keyword search if semantic sims are all zero
     if details["sem_sim"].max() == 0 and primary_keyword:
         resp     = requests.get(
             "https://www.googleapis.com/youtube/v3/search",
@@ -162,13 +154,12 @@ if st.button("Run Title & Thumbnail Match"):
         ).json().get("items", [])
         cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
         details  = fetch_video_details(cand_ids)
-        details["sem_sim"] = details["title"].map(
-            lambda t: cosine_sim(emb_src, get_embedding(t))
-        )
+        details["sem_sim"] = details["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
         details = details.sort_values("sem_sim", ascending=False)
 
     top1 = details.head(num_matches)
 
+    # Render Table 1
     st.subheader("Table 1 – Title Matches")
     md1 = "| Title | Type | Views | SemMatch (%) |\n|---|:---:|---:|---:|\n"
     for r in top1.itertuples():
