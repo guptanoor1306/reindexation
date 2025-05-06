@@ -1,7 +1,9 @@
 streamlit
 google-api-python-client
 pandas
-youtube-transcript-api
+pytube
+pydub
+openai
 rapidfuzz
 requests
 Pillow
