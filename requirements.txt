@@ -1,8 +1,7 @@
 streamlit
 google-api-python-client
 pandas
-pytube
-pydub
+numpy
 openai
 rapidfuzz
 requests
