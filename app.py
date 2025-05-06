@@ -12,7 +12,7 @@ import imagehash
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
-# ── Load secrets & initialize clients ──
+# ── Load secrets & init clients ──
 YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
 VISION_KEY = st.secrets["VISION"]["API_KEY"]
@@ -20,12 +20,19 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Helper functions ──
+# ── Helpers ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0) * 3600 +
             int(m.group(2) or 0) * 60 +
             int(m.group(3) or 0))
+
+def format_views(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}K"
+    return str(n)
 
 @st.cache_data
 def fetch_my_videos(channel_id: str) -> list[str]:
@@ -62,10 +69,7 @@ def fetch_video_details(video_ids: list[str]) -> pd.DataFrame:
 
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
-    resp = openai_cli.embeddings.create(
-        model="text-embedding-ada-002",
-        input=text
-    )
+    resp = openai_cli.embeddings.create(model="text-embedding-ada-002", input=text)
     emb = resp.data[0].embedding
     return np.array(emb, dtype=np.float32)
 
@@ -80,10 +84,10 @@ def hash_image(url: str) -> imagehash.ImageHash:
 def extract_text_via_vision(url: str) -> str:
     endpoint = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_KEY}"
     body = {
-        "requests": [{
-            "image":   {"source": {"imageUri": url}},
-            "features":[{"type": "TEXT_DETECTION", "maxResults": 1}]
-        }]
+      "requests": [{
+        "image": {"source": {"imageUri": url}},
+        "features": [{"type": "TEXT_DETECTION", "maxResults": 1}]
+      }]
     }
     r = requests.post(endpoint, json=body).json()
     try:
@@ -93,9 +97,7 @@ def extract_text_via_vision(url: str) -> str:
 
 # ── Sidebar inputs ──
 channel_id   = st.sidebar.text_input("Your Channel ID")
-content_type = st.sidebar.selectbox(
-    "Filter by:", ["Long-Form (>3 min)", "Shorts (≤3 min)"]
-)
+content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts (≤ 3 min)"])
 num_matches  = st.sidebar.number_input("Results to show", 1, 10, 5)
 
 # ── Guards ──
@@ -103,7 +105,7 @@ if not channel_id:
     st.info("Enter your YouTube Channel ID in the sidebar.")
     st.stop()
 
-# 1) Load and filter your uploads
+# 1) Load & filter your uploads
 with st.spinner("Loading your uploads…"):
     my_ids = fetch_my_videos(channel_id)
 if not my_ids:
@@ -117,10 +119,14 @@ if df.empty:
     st.warning(f"No {content_type} found in your uploads.")
     st.stop()
 
-# ── Main: select video & keyword, then run ──
+# ── Main workflow ──
 st.subheader("1) Select one of your videos")
 sel_title = st.selectbox("Your videos", df["title"].tolist())
-src       = df[df["title"] == sel_title].iloc[0]
+src = df[df["title"] == sel_title].iloc[0]
+
+# Display your selected video’s thumbnail and views
+st.image(src["thumb"], caption=f"Your video: {sel_title}", width=300)
+st.markdown(f"**Your Views:** {format_views(src['views'])}")
 
 st.subheader("2) Enter a primary keyword (mandatory)")
 primary_keyword = st.text_input("Primary keyword for broad matching")
@@ -146,10 +152,7 @@ if st.button("3) Run Title & Thumbnail Match"):
             "key":        YT_KEY
         }
     ).json().get("items", [])
-    cand_sem = [
-        it["id"]["videoId"] for it in sem
-        if it["snippet"]["channelId"] != channel_id
-    ]
+    cand_sem = [i["id"]["videoId"] for i in sem if i["snippet"]["channelId"] != channel_id]
 
     # ── Broad keyword search ──
     key = requests.get(
@@ -163,66 +166,62 @@ if st.button("3) Run Title & Thumbnail Match"):
             "key":        YT_KEY
         }
     ).json().get("items", [])
-    cand_key = [
-        it["id"]["videoId"] for it in key
-        if it["snippet"]["channelId"] != channel_id
-    ]
+    cand_key = [i["id"]["videoId"] for i in key if i["snippet"]["channelId"] != channel_id]
 
     # ── Combine unique candidates ──
     combined_ids = list(dict.fromkeys(cand_sem + cand_key))
     if not combined_ids:
-        st.warning("No candidates found from semantic or keyword search.")
+        st.warning("No candidates found.")
         st.stop()
 
-    # ── Fetch details & compute match scores ──
-    df_cand       = fetch_video_details(combined_ids)
-    df_cand["sem_sim"] = df_cand["title"].map(
-        lambda t: cosine_sim(emb_src, get_embedding(t))
-    )
-    df_cand["key_sim"] = df_cand["title"].map(
-        lambda t: fuzz.ratio(primary_keyword, t)
-    )
-    df_cand["score"] = df_cand[["sem_sim", "key_sim"]].max(axis=1)
+    # Fetch details & compute title-match scores
+    df_cand = fetch_video_details(combined_ids)
+    df_cand["sem_sim"] = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
+    df_cand["key_sim"] = df_cand["title"].map(lambda t: fuzz.ratio(primary_keyword, t))
+    df_cand["score"]   = df_cand[["sem_sim", "key_sim"]].max(axis=1)
     df_cand.sort_values("score", ascending=False, inplace=True)
 
     # ── Table 1: Title Matches ──
     st.subheader("Table 1 – Title Matches")
     top_title = df_cand.head(num_matches)
     md1 = (
-        "| Title | Type | Views | SemMatch (%) | KeyMatch (%) | Combined (%) |\n"
-        "|---|:---:|---:|---:|---:|---:|\n"
+        "| Title | Type | Views | SemMatch | KeyMatch | Combined |\n"
+        "|---|:---:|:---:|:---:|:---:|:---:|\n"
     )
     for r in top_title.itertuples():
         link = f"https://youtu.be/{r.videoId}"
         md1 += (
-            f"| [{r.title}]({link}) | {r.type} | {r.views:,} | "
-            f"{r.sem_sim:.1f}% | {r.key_sim:.1f}% | {r.score:.1f}% |\n"
+            f"| [{r.title}]({link}) "
+            f"| {r.type} "
+            f"| {format_views(r.views)} "
+            f"| {r.sem_sim:.1f}% "
+            f"| {r.key_sim:.1f}% "
+            f"| {r.score:.1f}% |\n"
         )
     st.markdown(md1, unsafe_allow_html=True)
 
     # ── Table 2: Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
     df_thumb = df_cand.copy()
-    df_thumb["text_sim"]   = df_thumb["thumb"].map(
-        lambda u: fuzz.ratio(text_src, extract_text_via_vision(u))
-    )
-    df_thumb["visual_sim"] = df_thumb["thumb"].map(
-        lambda u: max(0, (1 - (hash_src - hash_image(u)) / 64) * 100)
-    )
-    # keep only actual thumbnail matches
-    df_thumb = df_thumb[
-        (df_thumb["text_sim"] > 0) | (df_thumb["visual_sim"] > 0)
-    ].sort_values("visual_sim", ascending=False).head(num_matches)
+    df_thumb["text_sim"]   = df_thumb["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
+    df_thumb["visual_sim"] = df_thumb["thumb"].map(lambda u: max(0, (1 - (hash_src - hash_image(u)) / 64) * 100))
+    # only actual thumbnail matches
+    df_thumb = df_thumb[(df_thumb["text_sim"] > 0) | (df_thumb["visual_sim"] > 0)]
+    df_thumb.sort_values("visual_sim", ascending=False, inplace=True)
+    top_thumb = df_thumb.head(num_matches)
 
     md2 = (
-        "| Thumbnail | Title | Views | TextMatch (%) | VisualMatch (%) |\n"
-        "|---|---|---:|---:|---:|\n"
+        "| Thumbnail | Title | Views | TextMatch | VisualMatch |\n"
+        "|---|---|:---:|:---:|:---:|\n"
     )
-    for r in df_thumb.itertuples():
-        link  = f"https://youtu.be/{r.videoId}"
-        img   = f"![]({r.thumb})"
-        md2  += (
-            f"| {img} | [{r.title}]({link}) | {r.views:,} | "
-            f"{r.text_sim:.1f}% | {r.visual_sim:.1f}% |\n"
+    for r in top_thumb.itertuples():
+        link = f"https://youtu.be/{r.videoId}"
+        img_md = f"![]({r.thumb})"
+        md2 += (
+            f"| {img_md} "
+            f"| [{r.title}]({link}) "
+            f"| {format_views(r.views)} "
+            f"| {r.text_sim:.1f}% "
+            f"| {r.visual_sim:.1f}% |\n"
         )
     st.markdown(md2, unsafe_allow_html=True)
