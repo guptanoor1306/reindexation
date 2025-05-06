@@ -20,7 +20,7 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Helper functions ──
+# ── Helpers ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0) * 3600 +
@@ -36,14 +36,13 @@ def format_views(n: int) -> str:
 
 @st.cache_data
 def fetch_my_videos(channel_id: str) -> list[str]:
-    ids = []
-    req = youtube.search().list(
+    ids, req = [], youtube.search().list(
         part="id", channelId=channel_id,
         type="video", order="date", maxResults=50
     )
     while req:
         res = req.execute()
-        ids += [item["id"]["videoId"] for item in res["items"]]
+        ids += [i["id"]["videoId"] for i in res["items"]]
         req = youtube.search().list_next(req, res)
     return ids
 
@@ -73,8 +72,7 @@ def get_embedding(text: str) -> np.ndarray:
         model="text-embedding-ada-002",
         input=text
     )
-    emb = resp.data[0].embedding
-    return np.array(emb, dtype=np.float32)
+    return np.array(resp.data[0].embedding, dtype=np.float32)
 
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     return float((a @ b) / (np.linalg.norm(a) * np.linalg.norm(b))) * 100.0
@@ -86,12 +84,8 @@ def hash_image(url: str) -> imagehash.ImageHash:
 
 def extract_text_via_vision(url: str) -> str:
     endpoint = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_KEY}"
-    body = {
-      "requests": [{
-        "image":   {"source": {"imageUri": url}},
-        "features":[{"type":"TEXT_DETECTION","maxResults":1}]
-      }]
-    }
+    body = {"requests":[{"image":{"source":{"imageUri":url}},
+                         "features":[{"type":"TEXT_DETECTION","maxResults":1}]}]}
     r = requests.post(endpoint, json=body).json()
     try:
         return r["responses"][0]["fullTextAnnotation"]["text"]
@@ -127,7 +121,7 @@ sel_title = st.selectbox("Your videos", df["title"].tolist())
 src       = df[df["title"] == sel_title].iloc[0]
 
 # show your selected video
-st.image(src["thumb"], caption=f"▶️ {sel_title}", width=250)
+st.image(src["thumb"], caption=f"▶️ {sel_title}", width=300)
 st.markdown(f"**Your Views:** {format_views(src['views'])}")
 
 st.subheader("2) Enter a primary keyword (mandatory)")
@@ -139,6 +133,7 @@ if not primary_keyword:
 # precompute source signals
 emb_src  = get_embedding(src["title"])
 hash_src = hash_image(src["thumb"])
+max_bits = hash_src.hash.size        # dynamic max bits
 text_src = extract_text_via_vision(src["thumb"])
 
 if st.button("3) Run Title & Thumbnail Match"):
@@ -167,45 +162,64 @@ if st.button("3) Run Title & Thumbnail Match"):
     if not combined_ids:
         st.warning("No candidates found.")
         st.stop()
+
     df_cand = fetch_video_details(combined_ids)
 
-    # Compute match scores for titles
+    # Title-match scores
     df_cand["sem_sim"] = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["key_sim"] = df_cand["title"].map(lambda t: fuzz.ratio(primary_keyword, t))
-    df_cand["score"]   = df_cand[["sem_sim", "key_sim"]].max(axis=1)
+    df_cand["score"]   = df_cand[["sem_sim","key_sim"]].max(axis=1)
     df_cand.sort_values("score", ascending=False, inplace=True)
 
     # ── Table 1: Title Matches ──
     st.subheader("Table 1 – Title Matches")
     top_title = df_cand.head(num_matches)
-    md1 = "| Title | Type | Views | Sem % | Key % | Combined % |\n"
-    md1 += "|:---|:---|:---:|:---:|:---:|:---:|\n"
+    md1 = (
+        "| Title | Type | Views | Sem % | Key % | Combined % |\n"
+        "|:---   |:---  |---:   |---:   |---:   |---:   |\n"
+    )
     for r in top_title.itertuples():
         link = f"https://youtu.be/{r.videoId}"
         md1 += (
-            f"| [{r.title}]({link}) | {r.type} | {format_views(r.views)} | "
-            f"{r.sem_sim:.1f}% | {r.key_sim:.1f}% | {r.score:.1f}% |\n"
+            f"| [{r.title}]({link}) "
+            f"| {r.type} "
+            f"| {format_views(r.views)} "
+            f"| {r.sem_sim:.1f}% "
+            f"| {r.key_sim:.1f}% "
+            f"| {r.score:.1f}% |\n"
         )
     st.markdown(md1, unsafe_allow_html=True)
 
     # ── Table 2: Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
     df_thumb = df_cand.copy()
-    df_thumb["text_sim"]   = df_thumb["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
-    df_thumb["visual_sim"] = df_thumb["thumb"].map(lambda u: max(0, (1 - (hash_src - hash_image(u)) / 64) * 100))
-    # Keep only actual thumbnail matches
-    df_thumb = df_thumb[(df_thumb["text_sim"] > 0) | (df_thumb["visual_sim"] > 0)]
-    # Sort by visual_sim desc, then text_sim desc
-    df_thumb.sort_values(["visual_sim", "text_sim"], ascending=[False, False], inplace=True)
+    df_thumb["text_sim"] = df_thumb["thumb"].map(
+        lambda u: fuzz.ratio(text_src, extract_text_via_vision(u))
+    )
+    # proper visual computation
+    def visual_sim(url):
+        h2 = hash_image(url)
+        d  = hash_src - h2
+        return (max_bits - d) / max_bits * 100
+    df_thumb["visual_sim"] = df_thumb["thumb"].map(visual_sim)
+
+    # only real thumbnail matches
+    df_thumb = df_thumb[(df_thumb["text_sim"]>0)|(df_thumb["visual_sim"]>0)]
+    df_thumb.sort_values(["visual_sim","text_sim"], ascending=[False,False], inplace=True)
     top_thumb = df_thumb.head(num_matches)
 
-    md2 = "| Thumbnail | Title | Views | Text % | Visual % |\n"
-    md2 += "|:---|:---|:---:|:---:|:---:|\n"
+    md2 = (
+        "| Thumbnail | Title | Views | Text % | Visual % |\n"
+        "|:---:      |:---   |---:   |---:     |---:      |\n"
+    )
     for r in top_thumb.itertuples():
         link  = f"https://youtu.be/{r.videoId}"
-        img_md = f"![]({r.thumb})"
-        md2 += (
-            f"| {img_md} | [{r.title}]({link}) | {format_views(r.views)} | "
-            f"{r.text_sim:.1f}% | {r.visual_sim:.1f}% |\n"
+        img   = f"![]({r.thumb})"
+        md2  += (
+            f"| {img} "
+            f"| [{r.title}]({link}) "
+            f"| {format_views(r.views)} "
+            f"| {r.text_sim:.1f}% "
+            f"| {r.visual_sim:.1f}% |\n"
         )
     st.markdown(md2, unsafe_allow_html=True)
