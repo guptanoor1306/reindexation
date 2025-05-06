@@ -15,6 +15,10 @@ import imagehash
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
+st.sidebar.markdown("**Debug: loaded secrets keys**")
+st.sidebar.write(list(st.secrets.keys()))
+st.stop()
+
 # ── Load secrets & initialize clients ──
 YT_KEY       = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY   = st.secrets["OPENAI"]["API_KEY"]
