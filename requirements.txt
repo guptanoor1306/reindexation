@@ -6,4 +6,3 @@ rapidfuzz
 requests
 Pillow
 imagehash
-
