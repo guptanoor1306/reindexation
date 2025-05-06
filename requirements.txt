@@ -1,10 +1,9 @@
 streamlit
 google-api-python-client
+openai
 pandas
 numpy
-openai
 rapidfuzz
 requests
 Pillow
 imagehash
-google-cloud-vision
