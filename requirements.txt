@@ -7,4 +7,4 @@ rapidfuzz
 requests
 Pillow
 imagehash
-pytesseract
+google-cloud-vision
