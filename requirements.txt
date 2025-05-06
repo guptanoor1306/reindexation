@@ -3,3 +3,6 @@ google-api-python-client
 pandas
 youtube-transcript-api
 rapidfuzz
+requests
+Pillow
+imagehash
