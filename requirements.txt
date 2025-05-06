@@ -7,3 +7,4 @@ rapidfuzz
 requests
 Pillow
 imagehash
+pytesseract
