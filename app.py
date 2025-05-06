@@ -1,36 +1,40 @@
+import json
 import re
 import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
 from googleapiclient.discovery import build
+from google.oauth2 import service_account
+from google.cloud import vision
 from openai import OpenAI
 from rapidfuzz import fuzz
 from PIL import Image
 import imagehash
-from google.cloud import vision
 
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
-# ── Load secrets and init clients ──
+# ── Load secrets and initialize clients ──
 YT_KEY       = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY   = st.secrets["OPENAI"]["API_KEY"]
+gcp_sa_json  = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
+gcp_creds    = service_account.Credentials.from_service_account_info(gcp_sa_json)
+vision_cli   = vision.ImageAnnotatorClient(credentials=gcp_creds)
 youtube      = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli   = OpenAI(api_key=OPENAI_KEY)
-vision_cli   = vision.ImageAnnotatorClient()
 
-# ── Helpers ──
+# ── Helper functions ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     h, mm, s = int(m.group(1) or 0), int(m.group(2) or 0), int(m.group(3) or 0)
-    return h*3600 + mm*60 + s
+    return h * 3600 + mm * 60 + s
 
 @st.cache_data
-def fetch_my_videos(ch_id: str) -> list[str]:
+def fetch_my_videos(channel_id: str) -> list[str]:
     ids = []
     req = youtube.search().list(
-        part="id", channelId=ch_id,
+        part="id", channelId=channel_id,
         type="video", order="date", maxResults=50
     )
     while req:
@@ -43,7 +47,7 @@ def fetch_my_videos(ch_id: str) -> list[str]:
 def fetch_video_details(video_ids: list[str]) -> pd.DataFrame:
     rows = []
     for i in range(0, len(video_ids), 50):
-        chunk = video_ids[i:i+50]
+        chunk = video_ids[i : i + 50]
         resp = youtube.videos().list(
             part="snippet,contentDetails,statistics",
             id=",".join(chunk)
@@ -53,7 +57,7 @@ def fetch_video_details(video_ids: list[str]) -> pd.DataFrame:
             rows.append({
                 "videoId":     v["id"],
                 "title":       v["snippet"]["title"],
-                "description": v["snippet"].get("description","") or "",
+                "description": v["snippet"].get("description", "") or "",
                 "thumb":       v["snippet"]["thumbnails"]["high"]["url"],
                 "views":       int(v["statistics"].get("viewCount", 0)),
                 "type":        "Short" if sec <= 180 else "Long-Form"
@@ -66,7 +70,7 @@ def get_embedding(text: str) -> np.ndarray:
         model="text-embedding-ada-002",
         input=text
     )
-    emb  = resp.data[0].embedding
+    emb = resp.data[0].embedding
     return np.array(emb, dtype=np.float32)
 
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
@@ -84,7 +88,7 @@ def extract_text_cloud_vision(url: str) -> str:
     texts = resp.text_annotations
     return texts[0].description if texts else ""
 
-# ── Sidebar ──
+# ── Sidebar inputs ──
 channel_id      = st.sidebar.text_input("Your Channel ID")
 content_type    = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts (≤3 min)"])
 num_matches     = st.sidebar.number_input("Results to show", 1, 10, 5)
@@ -104,9 +108,10 @@ if channel_id:
     sel_title = st.selectbox("Pick one of your videos", df["title"])
     src       = df[df["title"] == sel_title].iloc[0]
 
-    # Precompute source embeddings & hash
-    emb_src  = get_embedding(src["title"])
-    hash_src = hash_image(src["thumb"])
+    # Precompute source embedding & thumbnail hash & OCR text
+    emb_src   = get_embedding(src["title"])
+    hash_src  = hash_image(src["thumb"])
+    text_src  = extract_text_cloud_vision(src["thumb"])
 
     if st.button("Run Title & Thumbnail Match"):
         # ── Table 1: Title Matching ──
@@ -122,8 +127,12 @@ if channel_id:
                 "key":        YT_KEY
             }
         ).json().get("items", [])
-        cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
-        details  = fetch_video_details(cand_ids)
+        cand_ids = [
+            it["id"]["videoId"]
+            for it in resp
+            if it["snippet"]["channelId"] != channel_id
+        ]
+        details = fetch_video_details(cand_ids)
         details["sem_sim"] = details["title"].map(
             lambda t: cosine_sim(emb_src, get_embedding(t))
         )
@@ -142,8 +151,12 @@ if channel_id:
                     "key":        YT_KEY
                 }
             ).json().get("items", [])
-            cand_ids = [it["id"]["videoId"] for it in resp if it["snippet"]["channelId"] != channel_id]
-            details  = fetch_video_details(cand_ids)
+            cand_ids = [
+                it["id"]["videoId"]
+                for it in resp
+                if it["snippet"]["channelId"] != channel_id
+            ]
+            details = fetch_video_details(cand_ids)
             details["sem_sim"] = details["title"].map(
                 lambda t: cosine_sim(emb_src, get_embedding(t))
             )
@@ -160,12 +173,12 @@ if channel_id:
 
         # ── Table 2: Thumbnail Matching ──
         st.subheader("Table 2 – Thumbnail Matches")
-        src_text = extract_text_cloud_vision(src["thumb"])
-
         md2 = "| Title | TextMatch (%) | VisualMatch (%) |\n|---|---:|---:|\n"
         for r in top1.itertuples():
+            # OCR text match
             their_text = extract_text_cloud_vision(r.thumb)
-            txt_sim    = fuzz.ratio(src_text, their_text)
+            txt_sim    = fuzz.ratio(text_src, their_text)
+            # visual hash match
             hash2      = hash_image(r.thumb)
             dist       = hash_src - hash2
             vis_sim    = max(0, (1 - dist/64) * 100)
