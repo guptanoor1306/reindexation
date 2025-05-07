@@ -19,7 +19,7 @@ st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 # ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
     "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
-    # … include all other channel IDs …
+    # … add all other channel IDs …
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
@@ -51,7 +51,7 @@ def fetch_my_videos(cid: str) -> list[str]:
     )
     while req:
         res = req.execute()
-        ids += [item["id"]["videoId"] for item in res.get("items", [])]
+        ids += [it["id"]["videoId"] for it in res.get("items", [])]
         req = youtube.search().list_next(req, res)
     return ids
 
@@ -101,15 +101,13 @@ def extract_text_via_vision(url: str) -> str:
 def get_intro_text(video_id: str, seconds: int) -> str:
     tmpdir = tempfile.mkdtemp()
     try:
-        out_path = os.path.join(tmpdir, f"{video_id}.webm")
+        out = os.path.join(tmpdir, f"{video_id}.webm")
         subprocess.run([
-            "yt-dlp",
-            "-f", "bestaudio",
+            "yt-dlp","-f","bestaudio",
             "--download-sections", f"*00:00:00-00:00:{seconds:02d}",
-            "-o", out_path,
-            f"https://youtu.be/{video_id}"
+            "-o", out, f"https://youtu.be/{video_id}"
         ], check=True)
-        with open(out_path, "rb") as f:
+        with open(out,"rb") as f:
             resp = openai_cli.audio.transcriptions.create(model="whisper-1", file=f)
         return resp.text
     except subprocess.CalledProcessError:
@@ -120,7 +118,7 @@ def get_intro_text(video_id: str, seconds: int) -> str:
 # ── Sidebar ──
 channel_id   = st.sidebar.text_input("Your Channel ID")
 content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts (≤ 3 min)"])
-num_matches  = st.sidebar.number_input("Results to show", 1, 10, 5)
+num_matches  = st.sidebar.number_input("Results to show", 1, 10, 10)
 
 if not channel_id:
     st.info("Enter your YouTube Channel ID."); st.stop()
@@ -166,7 +164,7 @@ def hist_sim(url: str) -> float:
     inter = sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
     return inter/total*100.0
 
-# ── 3) Run matches ──
+# ── 3) Run Title, Thumbnail & Intro Match ──
 if st.button("3) Run Title, Thumbnail & Intro Match"):
     # search candidates
     def yt_search(q: str):
@@ -205,11 +203,11 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
 
     # ── Table 1 – Title Matches ──
     st.subheader("Table 1 – Title Matches")
-    tab1_l, tab1_s = st.tabs(["Long-Form Matches","Shorts Matches"])
-    for tab, vtype in [(tab1_l,"Long-Form"),(tab1_s,"Short")]:
+    t1_long, t1_short = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in [(t1_long, "Long-Form"), (t1_short, "Short")]:
         with tab:
-            subset = df_cand[df_cand["type"]==vtype]
-            topn   = subset.nlargest(num_matches,"Combined %")
+            subset = df_cand[df_cand["type"] == vtype]
+            topn   = subset.nlargest(num_matches, "Combined %")
             md = "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
             md+= "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
             for _, r in topn.iterrows():
@@ -222,11 +220,15 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
 
     # ── Table 2 – Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
-    tab2_l, tab2_s = st.tabs(["Long-Form Matches","Shorts Matches"])
-    for tab, vtype in [(tab2_l,"Long-Form"),(tab2_s,"Short")]:
+    t2_long, t2_short = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in [(t2_long, "Long-Form"), (t2_short, "Short")]:
         with tab:
-            subset = df_cand[(df_cand["type"]==vtype)&((df_cand["Text %"]>0)|(df_cand["Visual %"]>0))]
-            topn   = subset.sort_values(["Visual %","Text %"],ascending=[False,False]).head(num_matches)
+            subset = df_cand[
+                (df_cand["type"] == vtype) &
+                ((df_cand["Text %"] > 0) | (df_cand["Visual %"] > 0))
+            ]
+            topn = subset.sort_values(["Visual %","Text %"], ascending=[False,False])\
+                         .head(num_matches)
             md = "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
             md+= "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
             for _, r in topn.iterrows():
@@ -242,11 +244,11 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     if not intro:
         st.warning("No audio transcript available.")
     else:
-        tab3_l, tab3_s = st.tabs(["Long-Form Matches","Shorts Matches"])
-        for tab, vtype in [(tab3_l,"Long-Form"),(tab3_s,"Short")]:
+        t3_long, t3_short = st.tabs(["Long-Form Matches","Shorts Matches"])
+        for tab, vtype in [(t3_long, "Long-Form"), (t3_short, "Short")]:
             with tab:
-                subset = df_cand[df_cand["type"]==vtype]
-                topn   = subset.nlargest(num_matches,"Intro Combined %")
+                subset = df_cand[df_cand["type"] == vtype]
+                topn   = subset.nlargest(num_matches, "Intro Combined %")
                 md = "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
                 md+= "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
                 for _, r in topn.iterrows():
