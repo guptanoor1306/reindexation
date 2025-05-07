@@ -214,7 +214,7 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
 
     df_cand = fetch_video_details(combined)
 
-    # ── Table 1 – Title Matches (UNCHANGED) ──
+    # ── Table 1 – Title Matches ──
     st.subheader("Table 1 – Title Matches")
     df_cand["Sem %"]      = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["Key %"]      = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
@@ -231,7 +231,7 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         )
     st.markdown(md1, unsafe_allow_html=True)
 
-    # ── Table 2 – Thumbnail Matches (UNCHANGED) ──
+    # ── Table 2 – Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
     df_cand["Text %"]   = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["Visual %"] = df_cand["thumb"].map(hist_sim)
