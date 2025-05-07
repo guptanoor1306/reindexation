@@ -14,113 +14,57 @@ st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
 # ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
-    "UCK7tptUDHh-RYDsdxO1-5QQ",
-    "UCvJJ_dzjViJCoLf5uKUTwoA",
-    "UCvQECJukTDE2i6aCoMnS-Vg",
-    "UCJFp8uSYCjXOMnkUyb3CQ3Q",
-    "UCUyDOdBWhC1MCxEjC46d-zw",
-    "UCWHCXSKASuSzao_pplQ7SPw",
-    "UCw5TLrz3qADabwezTEcOmgQ",
-    "UC415bOPUcGSamy543abLmRA",
-    "UCRzYN32xtBf3Yxsx5BvJWJw",
-    "UCLXo7UDZvByw2ixzpQCufnA",
-    "UCMiJRAwDNSNzuYeN2uWa0pA",
-    "UCBJycsmduvYEL83R_U4JriQ",
-    "UCVOTBwF0vnSxMRIbfSE_K_g",
-    "UCSPYNpQ2fHv9HJ-q6MIMaPw",
-    "UCUMccND2H_CVS0dMZKCPCXA",
-    "UCEhBVAPy-bxmnbNARF-_tvA",
-    "UCQQojT_AmVWGb4Eg-QniuBA",
-    "UCtinbF-Q-fVthA0qrFQTgXQ",
-    "UCV6KDgJskWaEckne5aPA0aQ",
-    "UCoOae5nYA7VqaXzerajD0lg",
-    "UCPgfM-dk3XAb4T3DtT6Nwsw",
-    "UCnpekFV93kB1O0rVqEKSumg",
-    "UC7ZddA__ewP3AtDefjl_tWg",
-    "UC3mjMoJuFnjYRBLon_6njbQ",
-    "UCqW8jxh4tH1Z1sWPbkGWL4g",
-    "UC3DkFux8Iv-aYnTRWzwaiBA",
-    "UCsNxHPbaCWL1tKw2hxGQD6g",
-    "UCPk2s5c4R_d-EUUNvFFODoA",
-    "UCwVEhEzsjLym_u1he4XWFkg",
-    "UCvs2mwDS-ZiIeJ01kvzarbQ",
-    "UCAxUtcgLiq_gopO87VaZM5w",
-    "UCwAdQUuPT6laN-AQR17fe1g",
-    "UC80Voenx9LIHY7TNwz55x7w",
-    "UCBqvATpjSubtNxpqUDj4_cA",
-    "UCvqttS8EzhRq2YWg03qKRCQ",
-    "UCODr9HUJ90xtWD-0Xoz4vPw",
-    "UCe6eisvsctSPvBhmincn6kA",
-    "UCA295QVkf9O1RQ8_-s3FVXg",
-    "UC4QZ_LsYcvcq7qOsOhpAX4A",
-    "UCkw1tYo7k8t-Y99bOXuZwhg",
-    "UCQXwgooTlP6tk2a-u6vgyUA",
-    "UCB7GnQlJPIL6rBBqEoX87vA",
-    "UCmGSJVG3mCRXVOP4yZrU1Dw",
-    "UC0a_pO439rhcyHBZq3AKdrw",
-    "UCJ24N4O0bP7LGLBDvye7oCA",
-    "UCHnyfMqiRRG1u-2MsSQLbXA",
-    "UCvK4bOhULCpmLabd2pDMtnA",
-    "UCXbKJML9pVclFHLFzpvBgWw",
-    "UCnmGIkw-KdI0W5siakKPKog",
-    "UCWpk9PSGHoJW1hZT4egxTNQ",
-    "UCGq-a57w-aPwyi3pW7XLiHw",
-    "UCL_v4tC26PvOFytV1_eEVSg",
-    "UCE4Gn00XZbpWvGUfIslT-tA",
-    "UCm5iBOcQ0GET_2FqFI61QDA",
-    "UCLQOtbB1COQwjcCEPB2pa8w",
-    "UCqit4NtRDfdEHKX_zgmAwrg",
-    "UCkCGANrihzExmu9QiqZpPlQ",
-    "UC9RM-iSvTu1uPJb8X5yp3EQ",
-    "UCdCottK2mn8T7VOHleKCYCg",
-    "UCxgAuX3XZROujMmGphN_scA",
-    "UCY1kMZp36IQSyNx_9h4mpCg",
-    "UCO3tlaeZ6Z0ZN5frMZI3-uQ",
-    "UCf_XYgupvdx7rA44Ap3uI5w",
-    "UCtnItzU7q_bA1eoEBjqcVrw",
-    "UCgNg3vwj3xt7QOrcIDaHdFg",
-    "UCggPd3Vf9ooG2r4I_ZNWBzA",
-    "UCQpPo9BNwezg54N9hMFQp6Q",
-    "UCvcEBQ0K3UsQ8bzWKHKQmbw",
-    "UCFDxyA1H3VEN0VQwfMe2VMQ",
-    "UCVRqLKnUgC4BM3Vu7gZYQcw",
-    "UC8uj-UFGDzAx3RfPzeRqnyA",
-    "UC7KbIaEOuY7H2j-cvhJ3mYA",
-    "UCvBy3qcISSOcrbqPhqmG4Xw",
-    "UCAL3JXZSzSm8AlZyD3nQdBA",
-    "UCtYKe7-XbaDjpUwcU5x0bLg",
-    "UCODHrzPMGbNv67e84WDZhQQ",
-    "UCkjrBN_GAjFJyVvjcI07KkQ",
-    "UCii9ezsUa_mBiSdw0PtSOaw",
-    "UCR0tBVaZPaSqmdqkw7oYmcw",
-    "UCPjHhJ3fxgcV5Gv5uVAhNEA",
-    "UCT0dmfFCLWuVKPWZ6wcdKyg",
-    "UCczAxLCL79gHXKYaEc9k-ZQ",
-    "UCqykZoZjaOPb6i_Y5gk0kLQ",
+    "UCK7tptUDHh-RYDsdxO1-5QQ", "UCvJJ_dzjViJCoLf5uKUTwoA", "UCvQECJukTDE2i6aCoMnS-Vg",
+    "UCJFp8uSYCjXOMnkUyb3CQ3Q", "UCUyDOdBWhC1MCxEjC46d-zw", "UCWHCXSKASuSzao_pplQ7SPw",
+    "UCw5TLrz3qADabwezTEcOmgQ", "UC415bOPUcGSamy543abLmRA", "UCRzYN32xtBf3Yxsx5BvJWJw",
+    "UCLXo7UDZvByw2ixzpQCufnA", "UCMiJRAwDNSNzuYeN2uWa0pA", "UCBJycsmduvYEL83R_U4JriQ",
+    "UCVOTBwF0vnSxMRIbfSE_K_g", "UCSPYNpQ2fHv9HJ-q6MIMaPw", "UCUMccND2H_CVS0dMZKCPCXA",
+    "UCEhBVAPy-bxmnbNARF-_tvA", "UCQQojT_AmVWGb4Eg-QniuBA", "UCtinbF-Q-fVthA0qrFQTgXQ",
+    "UCV6KDgJskWaEckne5aPA0aQ", "UCoOae5nYA7VqaXzerajD0lg", "UCPgfM-dk3XAb4T3DtT6Nwsw",
+    "UCnpekFV93kB1O0rVqEKSumg", "UC7ZddA__ewP3AtDefjl_tWg", "UC3mjMoJuFnjYRBLon_6njbQ",
+    "UCqW8jxh4tH1Z1sWPbkGWL4g", "UC3DkFux8Iv-aYnTRWzwaiBA", "UCsNxHPbaCWL1tKw2hxGQD6g",
+    "UCPk2s5c4R_d-EUUNvFFODoA", "UCwVEhEzsjLym_u1he4XWFkg", "UCvs2mwDS-ZiIeJ01kvzarbQ",
+    "UCAxUtcgLiq_gopO87VaZM5w", "UCwAdQUuPT6laN-AQR17fe1g", "UC80Voenx9LIHY7TNwz55x7w",
+    "UCBqvATpjSubtNxpqUDj4_cA", "UCvqttS8EzhRq2YWg03qKRCQ", "UCODr9HUJ90xtWD-0Xoz4vPw",
+    "UCe6eisvsctSPvBhmincn6kA", "UCA295QVkf9O1RQ8_-s3FVXg", "UC4QZ_LsYcvcq7qOsOhpAX4A",
+    "UCkw1tYo7k8t-Y99bOXuZwhg", "UCQXwgooTlP6tk2a-u6vgyUA", "UCB7GnQlJPIL6rBBqEoX87vA",
+    "UCmGSJVG3mCRXVOP4yZrU1Dw", "UC0a_pO439rhcyHBZq3AKdrw", "UCJ24N4O0bP7LGLBDvye7oCA",
+    "UCHnyfMqiRRG1u-2MsSQLbXA", "UCvK4bOhULCpmLabd2pDMtnA", "UCXbKJML9pVclFHLFzpvBgWw",
+    "UCnmGIkw-KdI0W5siakKPKog", "UCWpk9PSGHoJW1hZT4egxTNQ", "UCGq-a57w-aPwyi3pW7XLiHw",
+    "UCL_v4tC26PvOFytV1_eEVSg", "UCE4Gn00XZbpWvGUfIslT-tA", "UCm5iBOcQ0GET_2FqFI61QDA",
+    "UCLQOtbB1COQwjcCEPB2pa8w", "UCqit4NtRDfdEHKX_zgmAwrg", "UCkCGANrihzExmu9QiqZpPlQ",
+    "UC9RM-iSvTu1uPJb8X5yp3EQ", "UCdCottK2mn8T7VOHleKCYCg", "UCxgAuX3XZROujMmGphN_scA",
+    "UCY1kMZp36IQSyNx_9h4mpCg", "UCO3tlaeZ6Z0ZN5frMZI3-uQ", "UCf_XYgupvdx7rA44Ap3uI5w",
+    "UCtnItzU7q_bA1eoEBjqcVrw", "UCgNg3vwj3xt7QOrcIDaHdFg", "UCggPd3Vf9ooG2r4I_ZNWBzA",
+    "UCQpPo9BNwezg54N9hMFQp6Q", "UCvcEBQ0K3UsQ8bzWKHKQmbw", "UCFDxyA1H3VEN0VQwfMe2VMQ",
+    "UCVRqLKnUgC4BM3Vu7gZYQcw", "UC8uj-UFGDzAx3RfPzeRqnyA", "UC7KbIaEOuY7H2j-cvhJ3mYA",
+    "UCvBy3qcISSOcrbqPhqmG4Xw", "UCAL3JXZSzSm8AlZyD3nQdBA", "UCtYKe7-XbaDjpUwcU5x0bLg",
+    "UCODHrzPMGbNv67e84WDZhQQ", "UCkjrBN_GAjFJyVvjcI07KkQ", "UCii9ezsUa_mBiSdw0PtSOaw",
+    "UCR0tBVaZPaSqmdqkw7oYmcw", "UCPjHhJ3fxgcV5Gv5uVAhNEA", "UCT0dmfFCLWuVKPWZ6wcdKyg",
+    "UCczAxLCL79gHXKYaEc9k-ZQ", "UCqykZoZjaOPb6i_Y5gk0kLQ",
 ]
 
-# ── Load secrets & init clients ──
+# ── Secrets & clients ──
 YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
 VISION_KEY = st.secrets["VISION"]["API_KEY"]
-
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
 # ── Helpers ──
-def parse_iso_duration(dur: str) -> int:
+def parse_iso_duration(dur):
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
             int(m.group(2) or 0)*60 +
             int(m.group(3) or 0))
 
-def format_views(n: int) -> str:
+def format_views(n):
     if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
     if n >=   1_000: return f"{n/1_000:.1f}K"
     return str(n)
 
 @st.cache_data
-def fetch_my_videos(cid: str) -> list[str]:
+def fetch_my_videos(cid):
     ids, req = [], youtube.search().list(
         part="id", channelId=cid, type="video",
         order="date", maxResults=50
@@ -132,7 +76,7 @@ def fetch_my_videos(cid: str) -> list[str]:
     return ids
 
 @st.cache_data
-def fetch_video_details(vids: list[str]) -> pd.DataFrame:
+def fetch_video_details(vids):
     rows = []
     for i in range(0, len(vids), 50):
         chunk = vids[i:i+50]
@@ -147,7 +91,7 @@ def fetch_video_details(vids: list[str]) -> pd.DataFrame:
                 "videoId":    v["id"],
                 "title":      v["snippet"]["title"],
                 "channel":    v["snippet"]["channelTitle"],
-                "uploadDate": datetime.fromisoformat(pub.rstrip("Z")).date(),
+                "uploadDate": datetime.fromisoformat(pub.rstrip("Z")).date().isoformat(),
                 "thumb":      v["snippet"]["thumbnails"]["high"]["url"],
                 "views":      int(v["statistics"].get("viewCount", 0)),
                 "type":       "Short" if sec <= 180 else "Long-Form"
@@ -155,22 +99,20 @@ def fetch_video_details(vids: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 @st.cache_data
-def get_embedding(text: str) -> np.ndarray:
+def get_embedding(text):
     resp = openai_cli.embeddings.create(model="text-embedding-ada-002", input=text)
     return np.array(resp.data[0].embedding, dtype=np.float32)
 
-def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+def cosine_sim(a, b):
     return float((a @ b) / (np.linalg.norm(a)*np.linalg.norm(b))) * 100.0
 
-def extract_text_via_vision(url: str) -> str:
+def extract_text_via_vision(url):
     endpoint = f"https://vision.googleapis.com/v1/images:annotate?key={VISION_KEY}"
     body = {"requests":[{"image":{"source":{"imageUri":url}},
                          "features":[{"type":"TEXT_DETECTION","maxResults":1}]}]}
     r = requests.post(endpoint, json=body).json()
-    try:
-        return r["responses"][0]["fullTextAnnotation"]["text"]
-    except:
-        return ""
+    try: return r["responses"][0]["fullTextAnnotation"]["text"]
+    except: return ""
 
 # ── Sidebar ──
 channel_id   = st.sidebar.text_input("Your Channel ID")
@@ -178,91 +120,109 @@ content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts
 num_matches  = st.sidebar.number_input("Results to show", 1, 10, 5)
 
 if not channel_id:
-    st.info("Enter your YouTube Channel ID in the sidebar."); st.stop()
+    st.info("Enter your YouTube Channel ID."); st.stop()
 
 # 1) Load & filter your uploads
 with st.spinner("Loading your uploads…"):
     my_ids = fetch_my_videos(channel_id)
 if not my_ids:
-    st.error("No videos found for this channel."); st.stop()
+    st.error("No videos found."); st.stop()
 
 df_all     = fetch_video_details(my_ids)
 want_short = content_type.startswith("Shorts")
 df         = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
-    st.warning(f"No {content_type} found in your uploads."); st.stop()
+    st.warning(f"No {content_type} found."); st.stop()
 
-# ── Main: select video & keyword ──
+# ── Main: select & display your video ──
 st.subheader("1) Select one of your videos")
 sel = st.selectbox("Your videos", df["title"].tolist())
 src = df[df["title"] == sel].iloc[0]
 
 st.image(src["thumb"], caption=f"▶️ {sel}", width=300)
-st.markdown(f"**Channel:** {src['channel']} &nbsp;&nbsp; **Views:** {format_views(src['views'])}  ")
-st.markdown(f"**Uploaded:** {src['uploadDate']}")
+st.markdown(
+    f"**Channel:** {src['channel']}  "
+    f"**Uploaded:** {src['uploadDate']}  "
+    f"**Views:** {format_views(src['views'])}"
+)
 
 st.subheader("2) Enter a primary keyword (mandatory)")
-pk = st.text_input("Primary keyword for broad matching")
+pk = st.text_input("Primary keyword")
 if not pk:
-    st.info("Please enter a primary keyword to proceed."); st.stop()
+    st.info("Enter a primary keyword."); st.stop()
 
 # Precompute
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
-src_img  = Image.open(requests.get(src["thumb"], stream=True).raw).convert("RGB").resize((256,256))
+src_img  = Image.open(requests.get(src["thumb"], stream=True).raw)\
+               .convert("RGB").resize((256,256))
 src_hist = src_img.histogram(); sum_src = sum(src_hist)
-def hist_sim(url: str)->float:
-    img  = Image.open(requests.get(url, stream=True).raw).convert("RGB").resize((256,256))
+def hist_sim(url):
+    img  = Image.open(requests.get(url, stream=True).raw)\
+              .convert("RGB").resize((256,256))
     hist = img.histogram()
     inter = sum(min(src_hist[i], hist[i]) for i in range(len(src_hist)))
     return inter/sum_src*100
 
 if st.button("3) Run Title & Thumbnail Match"):
-    # Title search within allowed channels
     def yt_search(q):
-        return requests.get("https://youtube.googleapis.com/youtube/v3/search", params={
-            "part":"snippet","q":q,"type":"video","order":"viewCount","maxResults":50,"key":YT_KEY
-        }).json().get("items",[])
+        return requests.get(
+            "https://youtube.googleapis.com/youtube/v3/search",
+            params=dict(part="snippet",q=q,type="video",
+                        order="viewCount",maxResults=50,key=YT_KEY)
+        ).json().get("items",[])
+
     sem = yt_search(src["title"])
-    cand_sem = [i["id"]["videoId"] for i in sem if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_sem = [i["id"]["videoId"] for i in sem
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+
     key = yt_search(pk)
-    cand_key = [i["id"]["videoId"] for i in key if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_key = [i["id"]["videoId"] for i in key
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
 
-    combined = list(dict.fromkeys(cand_sem+ cand_key))
+    combined = list(dict.fromkeys(cand_sem + cand_key))
     if not combined:
-        st.warning("No candidates found in your channel list."); st.stop()
-    df_cand = fetch_video_details(combined)
+        st.warning("No matches found."); st.stop()
 
-    # Title scores
+    df_cand = fetch_video_details(combined)
     df_cand["sem"]   = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
-    df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk,t))
+    df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["score"] = df_cand[["sem","key"]].max(axis=1)
-    df_cand["videoUrl"] = "https://youtu.be/" + df_cand["videoId"]
-    df_cand["viewsFmt"] = df_cand["views"].map(format_views)
     df_cand.sort_values("score", ascending=False, inplace=True)
 
-    # Table 1
-    st.subheader("Table 1 – Title Matches (Click column headers to sort)")
-    df1 = df_cand.head(num_matches)[
-        ["title","videoUrl","channel","uploadDate","viewsFmt","sem","key","score"]
-    ].rename(columns={
-        "title":"Title","videoUrl":"URL","channel":"Channel",
-        "uploadDate":"Uploaded","viewsFmt":"Views",
-        "sem":"Sem %","key":"Key %","score":"Combined %"
-    })
-    st.dataframe(df1, use_container_width=True)
+    # ── Table 1 ──
+    st.subheader("Table 1 – Title Matches")
+    top1 = df_cand.head(num_matches)
+    md1 = (
+        "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
+        "|---|---|:---:|:---:|:---:|:---:|:---:|\n"
+    )
+    for r in top1.itertuples():
+        url_link = f"https://youtu.be/{r.videoId}"
+        md1 += (
+            f"| [{r.title}]({url_link}) | {r.channel} | {r.uploadDate} | "
+            f"{format_views(r.views)} | {r.sem:.1f}% | {r.key:.1f}% | {r.score:.1f}% |\n"
+        )
+    st.markdown(md1, unsafe_allow_html=True)
 
-    # Thumbnail scores
-    df_cand["text"]  = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
-    df_cand["hist"]  = df_cand["thumb"].map(hist_sim)
+    # ── Table 2 ──
+    st.subheader("Table 2 – Thumbnail Matches")
+    df_cand["text"] = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
+    df_cand["hist"] = df_cand["thumb"].map(hist_sim)
+    df_cand = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)]
     df_cand.sort_values(["hist","text"], ascending=[False,False], inplace=True)
+    top2 = df_cand.head(num_matches)
 
-    st.subheader("Table 2 – Thumbnail Matches (Click column headers to sort)")
-    df2 = df_cand[df_cand[["text","hist"]].max(axis=1) > 0].head(num_matches)[
-        ["thumb","title","videoUrl","channel","uploadDate","viewsFmt","text","hist"]
-    ].rename(columns={
-        "thumb":"Thumbnail URL","title":"Title","videoUrl":"URL",
-        "channel":"Channel","uploadDate":"Uploaded","viewsFmt":"Views",
-        "text":"Text %","hist":"Visual %"
-    })
-    st.dataframe(df2, use_container_width=True)
+    md2 = (
+        "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
+        "|:---:|---|---|:---:|:---:|:---:|:---:|\n"
+    )
+    for r in top2.itertuples():
+        thumb_md = f"![]({r.thumb})"
+        url_link = f"https://youtu.be/{r.videoId}"
+        md2 += (
+            f"| {thumb_md} | [{r.title}]({url_link}) | {r.channel} | "
+            f"{r.uploadDate} | {format_views(r.views)} | "
+            f"{r.text:.1f}% | {r.hist:.1f}% |\n"
+        )
+    st.markdown(md2, unsafe_allow_html=True)
