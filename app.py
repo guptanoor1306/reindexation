@@ -17,7 +17,32 @@ st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 # ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
     "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
-    # … (rest of your 83 IDs) …
+    "UCJFp8uSYCjXOMnkUyb3CQ3Q","UCUyDOdBWhC1MCxEjC46d-zw","UCWHCXSKASuSzao_pplQ7SPw",
+    "UCw5TLrz3qADabwezTEcOmgQ","UC415bOPUcGSamy543abLmRA","UCRzYN32xtBf3Yxsx5BvJWJw",
+    "UCLXo7UDZvByw2ixzpQCufnA","UCMiJRAwDNSNzuYeN2uWa0pA","UCBJycsmduvYEL83R_U4JriQ",
+    "UCVOTBwF0vnSxMRIbfSE_K_g","UCSPYNpQ2fHv9HJ-q6MIMaPw","UCUMccND2H_CVS0dMZKCPCXA",
+    "UCEhBVAPy-bxmnbNARF-_tvA","UCQQojT_AmVWGb4Eg-QniuBA","UCtinbF-Q-fVthA0qrFQTgXQ",
+    "UCV6KDgJskWaEckne5aPA0aQ","UCoOae5nYA7VqaXzerajD0lg","UCPgfM-dk3XAb4T3DtT6Nwsw",
+    "UCnpekFV93kB1O0rVqEKSumg","UC7ZddA__ewP3AtDefjl_tWg","UC3mjMoJuFnjYRBLon_6njbQ",
+    "UCqW8jxh4tH1Z1sWPbkGWL4g","UC3DkFux8Iv-aYnTRWzwaiBA","UCsNxHPbaCWL1tKw2hxGQD6g",
+    "UCPk2s5c4R_d-EUUNvFFODoA","UCwVEhEzsjLym_u1he4XWFkg","UCvs2mwDS-ZiIeJ01kvzarbQ",
+    "UCAxUtcgLiq_gopO87VaZM5w","UCwAdQUuPT6laN-AQR17fe1g","UC80Voenx9LIHY7TNwz55x7w",
+    "UCBqvATpjSubtNxpqUDj4_cA","UCvqttS8EzhRq2YWg03qKRCQ","UCODr9HUJ90xtWD-0Xoz4vPw",
+    "UCe6eisvsctSPvBhmincn6kA","UCA295QVkf9O1RQ8_-s3FVXg","UC4QZ_LsYcvcq7qOsOhpAX4A",
+    "UCkw1tYo7k8t-Y99bOXuZwhg","UCQXwgooTlP6tk2a-u6vgyUA","UCB7GnQlJPIL6rBBqEoX87vA",
+    "UCmGSJVG3mCRXVOP4yZrU1Dw","UC0a_pO439rhcyHBZq3AKdrw","UCJ24N4O0bP7LGLBDvye7oCA",
+    "UCHnyfMqiRRG1u-2MsSQLbXA","UCvK4bOhULCpmLabd2pDMtnA","UCXbKJML9pVclFHLFzpvBgWw",
+    "UCnmGIkw-KdI0W5siakKPKog","UCWpk9PSGHoJW1hZT4egxTNQ","UCGq-a57w-aPwyi3pW7XLiHw",
+    "UCL_v4tC26PvOFytV1_eEVSg","UCE4Gn00XZbpWvGUfIslT-tA","UCm5iBOcQ0GET_2FqFI61QDA",
+    "UCLQOtbB1COQwjcCEPB2pa8w","UCqit4NtRDfdEHKX_zgmAwrg","UCkCGANrihzExmu9QiqZpPlQ",
+    "UC9RM-iSvTu1uPJb8X5yp3EQ","UCdCottK2mn8T7VOHleKCYCg","UCxgAuX3XZROujMmGphN_scA",
+    "UCY1kMZp36IQSyNx_9h4mpCg","UCO3tlaeZ6Z0ZN5frMZI3-uQ","UCf_XYgupvdx7rA44Ap3uI5w",
+    "UCtnItzU7q_bA1eoEBjqcVrw","UCgNg3vwj3xt7QOrcIDaHdFg","UCggPd3Vf9ooG2r4I_ZNWBzA",
+    "UCQpPo9BNwezg54N9hMFQp6Q","UCvcEBQ0K3UsQ8bzWKHKQmbw","UCFDxyA1H3VEN0VQwfMe2VMQ",
+    "UCVRqLKnUgC4BM3Vu7gZYQcw","UC8uj-UFGDzAx3RfPzeRqnyA","UC7KbIaEOuY7H2j-cvhJ3mYA",
+    "UCvBy3qcISSOcrbqPhqmG4Xw","UCAL3JXZSzSm8AlZyD3nQdBA","UCtYKe7-XbaDjpUwcU5x0bLg",
+    "UCODHrzPMGbNv67e84WDZhQQ","UCkjrBN_GAjFJyVvjcI07KkQ","UCii9ezsUa_mBiSdw0PtSOaw",
+    "UCR0tBVaZPaSqmdqkw7oYmcw","UCPjHhJ3fxgcV5Gv5uVAhNEA","UCT0dmfFCLWuVKPWZ6wcdKyg",
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
@@ -29,7 +54,7 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Helper functions ──
+# ── Helpers ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
@@ -159,30 +184,34 @@ def hist_sim(u: str) -> float:
     return inter/total*100
 
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    def yt_search(q: str):
-        return requests.get(
-            "https://youtube.googleapis.com/youtube/v3/search",
-            params=dict(part="snippet",q=q,type="video",
-                        order="viewCount",maxResults=50,key=YT_KEY)
-        ).json().get("items",[])
+    # ── per-channel semantic & keyword search ──
+    cand_sem, cand_key = [], []
+    for ch in ALLOWED_CHANNELS:
+        sem_resp = youtube.search().list(
+            part="snippet", channelId=ch, q=src["title"],
+            type="video", order="viewCount", maxResults=5
+        ).execute()
+        cand_sem += [item["id"]["videoId"] for item in sem_resp.get("items", [])]
 
-    sem = yt_search(src["title"])
-    cand_sem = [i["id"]["videoId"] for i in sem if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    key = yt_search(pk)
-    cand_key = [i["id"]["videoId"] for i in key if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+        key_resp = youtube.search().list(
+            part="snippet", channelId=ch, q=pk,
+            type="video", order="viewCount", maxResults=5
+        ).execute()
+        cand_key += [item["id"]["videoId"] for item in key_resp.get("items", [])]
+
     combined = list(dict.fromkeys(cand_sem + cand_key))
     if not combined:
         st.warning("No matches found."); st.stop()
 
     df_cand = fetch_video_details(combined)
-    # Title match scores
+
+    # ── Table 1: Title Matches ──
     df_cand["sem"]   = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["score"] = df_cand[["sem","key"]].max(axis=1)
     df_cand.sort_values("score", ascending=False, inplace=True)
     top1 = df_cand.head(num_matches)
 
-    # ── HTML Table 1 ──
     html1 = """
     <table style="width:100%;border-collapse:collapse;">
       <thead>
@@ -211,7 +240,7 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     st.subheader("Table 1 – Title Matches")
     components.html(html1, height=50 + 40 * len(top1), scrolling=True)
 
-    # Thumbnail matches
+    # ── Table 2: Thumbnail Matches ──
     df_cand["text"] = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["hist"] = df_cand["thumb"].map(hist_sim)
     df2 = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)].sort_values(
@@ -246,7 +275,7 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     st.subheader("Table 2 – Thumbnail Matches")
     components.html(html2, height=80 + 50 * len(df2), scrolling=True)
 
-    # Intro matches
+    # ── Table 3: Intro Text Matches ──
     secs = 20 if want_short else 60
     intro = get_intro_text(src["videoId"], secs)
     if not intro:
