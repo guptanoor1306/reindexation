@@ -6,5 +6,4 @@ numpy
 rapidfuzz
 requests
 Pillow
-youtube-transcript-api
-
+yt-dlp
