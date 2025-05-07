@@ -7,11 +7,16 @@ import shutil
 import streamlit as st
 import pandas as pd
 import numpy as np
+import logging
 from datetime import datetime
 from googleapiclient.discovery import build
 from openai import OpenAI
 from rapidfuzz import fuzz
 from PIL import Image
+
+# ── Logging setup ──
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
@@ -111,12 +116,13 @@ def get_intro_text(video_id: str, seconds: int) -> str:
         with open(out,"rb") as f:
             resp = openai_cli.audio.transcriptions.create(model="whisper-1", file=f)
         return resp.text
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        logger.error(f"yt-dlp failed: {e}")
         return ""
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-# ── Sidebar ──
+# ── Sidebar inputs ──
 channel_id   = st.sidebar.text_input("Your Channel ID")
 content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts (≤ 3 min)"])
 num_matches  = st.sidebar.number_input("Results to show", 1, 10, 10)
@@ -135,7 +141,7 @@ df         = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
     st.warning(f"No {content_type} found."); st.stop()
 
-# ── Main: select & display your video ──
+# ── 1) Select your video ──
 st.subheader("1) Select one of your videos")
 sel = st.selectbox("Your videos", df["title"].tolist())
 src = df[df["title"] == sel].iloc[0]
@@ -146,6 +152,7 @@ st.markdown(
     f"**Views:** {format_views(src['views'])}"
 )
 
+# ── 2) Primary keyword ──
 st.subheader("2) Enter a primary keyword (mandatory)")
 pk = st.text_input("Primary keyword")
 if not pk:
@@ -158,57 +165,66 @@ img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
                .convert("RGB").resize((256,256))
 hist_src = img.histogram(); total = sum(hist_src)
 def hist_sim(url: str) -> float:
-    img2 = Image.open(requests.get(url, stream=True).raw)\
+    img2  = Image.open(requests.get(url, stream=True).raw)\
                 .convert("RGB").resize((256,256))
-    h2   = img2.histogram()
-    inter= sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
+    h2    = img2.histogram()
+    inter = sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
     return inter/total*100.0
 
+# ── 3) Run matching ──
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    # two searches per query: default + shorts-only
+    debug_logs = []
     def yt_search(q: str, dur: str=None):
         params = dict(part="snippet", q=q, type="video",
                       order="viewCount", maxResults=50, key=YT_KEY)
         if dur:
             params["videoDuration"] = dur
-        return requests.get(
+        debug_logs.append(f"YT search params: {params}")
+        res = requests.get(
             "https://youtube.googleapis.com/youtube/v3/search",
             params=params
         ).json().get("items", [])
+        debug_logs.append(f"→ got {len(res)} results")
+        return res
 
-    sem_all   = yt_search(src["title"])
-    sem_shorts= yt_search(src["title"], "short")
-    key_all   = yt_search(pk)
-    key_shorts= yt_search(pk, "short")
+    debug_logs.append(f"Searching for title: {src['title']}")
+    sem_all    = yt_search(src["title"])
+    sem_shorts = yt_search(src["title"], "short")
+    debug_logs.append(f"Searching for keyword: {pk}")
+    key_all    = yt_search(pk)
+    key_shorts = yt_search(pk, "short")
 
-    cand_sem  = [i["id"]["videoId"] for i in (sem_all + sem_shorts)
-                 if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    cand_key  = [i["id"]["videoId"] for i in (key_all + key_shorts)
-                 if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_sem = [i["id"]["videoId"] for i in (sem_all + sem_shorts)
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_key = [i["id"]["videoId"] for i in (key_all + key_shorts)
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    debug_logs.append(f"cand_sem ({len(cand_sem)}): {cand_sem}")
+    debug_logs.append(f"cand_key ({len(cand_key)}): {cand_key}")
 
-    combined  = list(dict.fromkeys(cand_sem + cand_key))
+    combined = list(dict.fromkeys(cand_sem + cand_key))
+    debug_logs.append(f"combined ({len(combined)}): {combined}")
     if not combined:
-        st.warning("No matches found."); st.stop()
+        st.warning("No matches found."); 
+        with st.expander("Debug logs"):
+            for l in debug_logs: st.text(l)
+        st.stop()
 
     df_cand = fetch_video_details(combined)
 
-    # ── Compute all metrics ──
-    df_cand["Sem %"]      = df_cand["title"]\
-                              .map(lambda t: cosine_sim(emb_src, get_embedding(t)))
+    # ── Compute metrics ──
+    df_cand["Sem %"]      = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["Key %"]      = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["Combined %"] = df_cand[["Sem %","Key %"]].max(axis=1)
-    df_cand["Text %"]     = df_cand["thumb"]\
-                              .map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
+    df_cand["Text %"]     = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["Visual %"]   = df_cand["thumb"].map(hist_sim)
 
     secs  = 20 if want_short else 60
     intro = get_intro_text(src["videoId"], secs)
+    debug_logs.append(f"Intro text ({len(intro)} chars): {intro[:100]!r}")
     if intro:
         df_cand["Intro→Title %"]     = df_cand["title"].map(lambda t: fuzz.ratio(intro, t))
-        df_cand["Intro→ThumbText %"] = df_cand["thumb"]\
-                                        .map(lambda u: fuzz.ratio(intro, extract_text_via_vision(u)))
-        df_cand["Intro Combined %"]  = df_cand[["Intro→Title %","Intro→ThumbText %"]]\
-                                        .max(axis=1)
+        df_cand["Intro→ThumbText %"] = df_cand["thumb"].map(lambda u: fuzz.ratio(intro, extract_text_via_vision(u)))
+        df_cand["Intro Combined %"]  = df_cand[["Intro→Title %","Intro→ThumbText %"]].max(axis=1)
     else:
         df_cand["Intro→Title %"]     = 0
         df_cand["Intro→ThumbText %"] = 0
@@ -219,11 +235,11 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     t1_l, t1_s = st.tabs(["Long-Form Matches","Shorts Matches"])
     for tab, vtype in [(t1_l,"Long-Form"),(t1_s,"Short")]:
         with tab:
-            sub = df_cand[df_cand["type"]==vtype]
-            top = sub.nlargest(num_matches, "Combined %")
+            subset = df_cand[df_cand["type"]==vtype]
+            topn   = subset.nlargest(num_matches, "Combined %")
             md  = "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
             md += "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
-            for _, r in top.iterrows():
+            for _, r in topn.iterrows():
                 md += (
                     f"| [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
                     f"{r['uploadDate']} | {format_views(r['views'])} | "
@@ -236,13 +252,13 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     t2_l, t2_s = st.tabs(["Long-Form Matches","Shorts Matches"])
     for tab, vtype in [(t2_l,"Long-Form"),(t2_s,"Short")]:
         with tab:
-            sub = df_cand[(df_cand["type"]==vtype)&
-                         ((df_cand["Text %"]>0)|(df_cand["Visual %"]>0))]
-            top= sub.sort_values(["Visual %","Text %"],ascending=[False,False])\
-                    .head(num_matches)
+            subset = df_cand[(df_cand["type"]==vtype)&
+                             ((df_cand["Text %"]>0)|(df_cand["Visual %"]>0))]
+            topn   = subset.sort_values(["Visual %","Text %"],ascending=[False,False])\
+                            .head(num_matches)
             md  = "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
             md += "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
-            for _, r in top.iterrows():
+            for _, r in topn.iterrows():
                 md += (
                     f"| ![]({r['thumb']}) | [{r['title']}](https://youtu.be/{r.videoId}) | "
                     f"{r['channel']} | {r['uploadDate']} | {format_views(r['views'])} | "
@@ -258,14 +274,19 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         t3_l, t3_s = st.tabs(["Long-Form Matches","Shorts Matches"])
         for tab, vtype in [(t3_l,"Long-Form"),(t3_s,"Short")]:
             with tab:
-                sub = df_cand[df_cand["type"]==vtype]
-                top= sub.nlargest(num_matches, "Intro Combined %")
+                subset = df_cand[df_cand["type"]==vtype]
+                topn   = subset.nlargest(num_matches, "Intro Combined %")
                 md  = "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
                 md += "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
-                for _, r in top.iterrows():
+                for _, r in topn.iterrows():
                     md += (
                         f"| [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
                         f"{r['uploadDate']} | {format_views(r['views'])} | "
                         f"{r['Intro→Title %']:.1f}% | {r['Intro→ThumbText %']:.1f}% | {r['Intro Combined %']:.1f}% |\n"
                     )
                 st.markdown(md, unsafe_allow_html=True)
+
+    # ── Show debug logs ──
+    with st.expander("Show debug logs"):
+        for line in debug_logs:
+            st.text(line)
