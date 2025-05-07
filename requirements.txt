@@ -6,4 +6,5 @@ numpy
 rapidfuzz
 requests
 Pillow
-imagehash
+youtube-transcript-api
+
