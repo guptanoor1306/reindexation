@@ -64,9 +64,9 @@ st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
 ALLOWED_CHANNELS = [
-    # … all 83 channel IDs …
+    # … your 83 channel IDs …
     "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
-    # (snip for brevity) …
+    # (etc) …
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
@@ -77,6 +77,7 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
+# ── Utility functions ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
@@ -90,22 +91,38 @@ def format_views(n: int) -> str:
 
 @st.cache_data
 def fetch_my_videos(cid: str) -> list[str]:
-    """Fetch your own uploads via the uploads playlist (low quota cost)."""
+    """
+    Try low-cost channels().list → playlistItems().
+    On 403/quota errors, fallback to search.list for your uploads.
+    """
     try:
         ch = youtube.channels().list(part="contentDetails", id=cid).execute()
         uploads_pl = ch["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        vids = []
+        req = youtube.playlistItems().list(
+            part="contentDetails", playlistId=uploads_pl, maxResults=50
+        )
+        while req:
+            res = req.execute()
+            vids += [item["contentDetails"]["videoId"] for item in res.get("items", [])]
+            req = youtube.playlistItems().list_next(req, res)
+        return vids
     except HttpError as e:
-        st.error(f"Error fetching your uploads playlist: {e}")
-        return []
-    vids = []
-    req = youtube.playlistItems().list(
-        part="contentDetails", playlistId=uploads_pl, maxResults=50
-    )
-    while req:
-        res = req.execute()
-        vids += [item["contentDetails"]["videoId"] for item in res.get("items", [])]
-        req = youtube.playlistItems().list_next(req, res)
-    return vids
+        # fallback to old search-based fetch
+        if e.resp.status == 403:
+            vids = []
+            req = youtube.search().list(
+                part="id", channelId=cid, type="video",
+                order="date", maxResults=50
+            )
+            while req:
+                res = req.execute()
+                vids += [i["id"]["videoId"] for i in res.get("items", [])]
+                req = youtube.search().list_next(req, res)
+            return vids
+        else:
+            st.error(f"Error fetching your uploads: {e}")
+            return []
 
 @st.cache_data
 def fetch_video_details(vids: list[str]) -> pd.DataFrame:
@@ -199,7 +216,7 @@ pk = st.text_input("Primary keyword")
 if not pk:
     st.info("Enter a primary keyword."); st.stop()
 
-# ── Precompute embeddings & thumbnail histogram ──
+# ── Precompute embeddings & histogram ──
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
 img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
@@ -211,16 +228,14 @@ def hist_sim(url: str) -> float:
     h = i.histogram()
     return sum(min(hist_src[j], h[j]) for j in range(len(h))) / total * 100
 
-# ── Run all three matches ──
+# ── Run Title, Thumbnail & Intro matches ──
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    # global semantic + keyword
     sem_ids = global_search(src["title"])
     key_ids = global_search(pk)
     combined = list(dict.fromkeys(sem_ids + key_ids))
     if not combined:
         st.warning("No matches found."); st.stop()
 
-    # fetch details + filter to your 83 channels
     df_cand = fetch_video_details(combined)
     df_cand = df_cand[df_cand["channelId"].isin(ALLOWED_CHANNELS)]
     if df_cand.empty:
