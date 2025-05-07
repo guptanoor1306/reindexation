@@ -3,6 +3,7 @@ import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
+from datetime import datetime
 from googleapiclient.discovery import build
 from openai import OpenAI
 from rapidfuzz import fuzz
@@ -106,7 +107,7 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Helper functions ──
+# ── Helpers ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
@@ -141,12 +142,15 @@ def fetch_video_details(vids: list[str]) -> pd.DataFrame:
         ).execute()
         for v in resp["items"]:
             sec = parse_iso_duration(v["contentDetails"]["duration"])
+            pub = v["snippet"]["publishedAt"]
             rows.append({
-                "videoId": v["id"],
-                "title":   v["snippet"]["title"],
-                "thumb":   v["snippet"]["thumbnails"]["high"]["url"],
-                "views":   int(v["statistics"].get("viewCount", 0)),
-                "type":    "Short" if sec <= 180 else "Long-Form"
+                "videoId":    v["id"],
+                "title":      v["snippet"]["title"],
+                "channel":    v["snippet"]["channelTitle"],
+                "uploadDate": datetime.fromisoformat(pub.rstrip("Z")).date(),
+                "thumb":      v["snippet"]["thumbnails"]["high"]["url"],
+                "views":      int(v["statistics"].get("viewCount", 0)),
+                "type":       "Short" if sec <= 180 else "Long-Form"
             })
     return pd.DataFrame(rows)
 
@@ -174,126 +178,91 @@ content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts
 num_matches  = st.sidebar.number_input("Results to show", 1, 10, 5)
 
 if not channel_id:
-    st.info("Enter your YouTube Channel ID in the sidebar.")
-    st.stop()
+    st.info("Enter your YouTube Channel ID in the sidebar."); st.stop()
 
 # 1) Load & filter your uploads
 with st.spinner("Loading your uploads…"):
     my_ids = fetch_my_videos(channel_id)
 if not my_ids:
-    st.error("No videos found for this channel.")
-    st.stop()
+    st.error("No videos found for this channel."); st.stop()
 
 df_all     = fetch_video_details(my_ids)
 want_short = content_type.startswith("Shorts")
 df         = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
-    st.warning(f"No {content_type} found in your uploads.")
-    st.stop()
+    st.warning(f"No {content_type} found in your uploads."); st.stop()
 
 # ── Main: select video & keyword ──
 st.subheader("1) Select one of your videos")
-sel_title = st.selectbox("Your videos", df["title"].tolist())
-src       = df[df["title"] == sel_title].iloc[0]
+sel = st.selectbox("Your videos", df["title"].tolist())
+src = df[df["title"] == sel].iloc[0]
 
-# Show your selected video’s thumbnail & views
-st.image(src["thumb"], caption=f"▶️ {sel_title}", width=300)
-st.markdown(f"**Your Views:** {format_views(src['views'])}")
+st.image(src["thumb"], caption=f"▶️ {sel}", width=300)
+st.markdown(f"**Channel:** {src['channel']} &nbsp;&nbsp; **Views:** {format_views(src['views'])}  ")
+st.markdown(f"**Uploaded:** {src['uploadDate']}")
 
 st.subheader("2) Enter a primary keyword (mandatory)")
-primary_keyword = st.text_input("Primary keyword for broad matching")
-if not primary_keyword:
-    st.info("Please enter a primary keyword to proceed.")
-    st.stop()
+pk = st.text_input("Primary keyword for broad matching")
+if not pk:
+    st.info("Please enter a primary keyword to proceed."); st.stop()
 
-# Precompute source signals
+# Precompute
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
-
-# Precompute histogram of your thumbnail
-src_img  = Image.open(requests.get(src["thumb"], stream=True).raw)\
-               .convert("RGB").resize((256,256))
-src_hist = src_img.histogram()
-sum_src  = sum(src_hist)
-def histogram_similarity(url: str) -> float:
-    img  = Image.open(requests.get(url, stream=True).raw)\
-               .convert("RGB").resize((256,256))
+src_img  = Image.open(requests.get(src["thumb"], stream=True).raw).convert("RGB").resize((256,256))
+src_hist = src_img.histogram(); sum_src = sum(src_hist)
+def hist_sim(url: str)->float:
+    img  = Image.open(requests.get(url, stream=True).raw).convert("RGB").resize((256,256))
     hist = img.histogram()
     inter = sum(min(src_hist[i], hist[i]) for i in range(len(src_hist)))
-    return (inter / sum_src) * 100.0
+    return inter/sum_src*100
 
 if st.button("3) Run Title & Thumbnail Match"):
-    # semantic title search, filter to ALLOWED_CHANNELS
-    sem = requests.get("https://www.googleapis.com/youtube/v3/search", params={
-        "part":"snippet","q":src["title"],"type":"video",
-        "order":"viewCount","maxResults":50,"key":YT_KEY
-    }).json().get("items",[])
-    cand_sem = [
-        i["id"]["videoId"]
-        for i in sem
-        if i["snippet"]["channelId"] in ALLOWED_CHANNELS
-    ]
+    # Title search within allowed channels
+    def yt_search(q):
+        return requests.get("https://youtube.googleapis.com/youtube/v3/search", params={
+            "part":"snippet","q":q,"type":"video","order":"viewCount","maxResults":50,"key":YT_KEY
+        }).json().get("items",[])
+    sem = yt_search(src["title"])
+    cand_sem = [i["id"]["videoId"] for i in sem if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    key = yt_search(pk)
+    cand_key = [i["id"]["videoId"] for i in key if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
 
-    # broad keyword search, filter to ALLOWED_CHANNELS
-    key = requests.get("https://www.googleapis.com/youtube/v3/search", params={
-        "part":"snippet","q":primary_keyword,"type":"video",
-        "order":"viewCount","maxResults":50,"key":YT_KEY
-    }).json().get("items",[])
-    cand_key = [
-        i["id"]["videoId"]
-        for i in key
-        if i["snippet"]["channelId"] in ALLOWED_CHANNELS
-    ]
+    combined = list(dict.fromkeys(cand_sem+ cand_key))
+    if not combined:
+        st.warning("No candidates found in your channel list."); st.stop()
+    df_cand = fetch_video_details(combined)
 
-    # combine & fetch details
-    combined_ids = list(dict.fromkeys(cand_sem + cand_key))
-    if not combined_ids:
-        st.warning("No candidates found in your channel list.")
-        st.stop()
-    df_cand = fetch_video_details(combined_ids)
-
-    # Title‐match scores
-    df_cand["sem_sim"] = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
-    df_cand["key_sim"] = df_cand["title"].map(lambda t: fuzz.ratio(primary_keyword, t))
-    df_cand["score"]   = df_cand[["sem_sim","key_sim"]].max(axis=1)
+    # Title scores
+    df_cand["sem"]   = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
+    df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk,t))
+    df_cand["score"] = df_cand[["sem","key"]].max(axis=1)
+    df_cand["videoUrl"] = "https://youtu.be/" + df_cand["videoId"]
+    df_cand["viewsFmt"] = df_cand["views"].map(format_views)
     df_cand.sort_values("score", ascending=False, inplace=True)
 
-    # ── Table 1: Title Matches ──
-    st.subheader("Table 1 – Title Matches")
-    top_title = df_cand.head(num_matches)
-    md1 = (
-        "| Title | Type | Views | Sem % | Key % | Combined % |\n"
-        "|:---   |:---  |:---:  |:---:  |:---:  |:---:  |\n"
-    )
-    for r in top_title.itertuples():
-        link = f"https://youtu.be/{r.videoId}"
-        md1 += (
-            f"| [{r.title}]({link}) | {r.type} | {format_views(r.views)} | "
-            f"{r.sem_sim:.1f}% | {r.key_sim:.1f}% | {r.score:.1f}% |\n"
-        )
-    st.markdown(md1, unsafe_allow_html=True)
+    # Table 1
+    st.subheader("Table 1 – Title Matches (Click column headers to sort)")
+    df1 = df_cand.head(num_matches)[
+        ["title","videoUrl","channel","uploadDate","viewsFmt","sem","key","score"]
+    ].rename(columns={
+        "title":"Title","videoUrl":"URL","channel":"Channel",
+        "uploadDate":"Uploaded","viewsFmt":"Views",
+        "sem":"Sem %","key":"Key %","score":"Combined %"
+    })
+    st.dataframe(df1, use_container_width=True)
 
-    # ── Table 2: Thumbnail Matches ──
-    st.subheader("Table 2 – Thumbnail Matches")
-    df_thumb = df_cand.copy()
-    df_thumb["text_sim"] = df_thumb["thumb"].map(
-        lambda u: fuzz.ratio(text_src, extract_text_via_vision(u))
-    )
-    df_thumb["hist_sim"] = df_thumb["thumb"].map(histogram_similarity)
+    # Thumbnail scores
+    df_cand["text"]  = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
+    df_cand["hist"]  = df_cand["thumb"].map(hist_sim)
+    df_cand.sort_values(["hist","text"], ascending=[False,False], inplace=True)
 
-    df_thumb = df_thumb[(df_thumb["text_sim"] > 0) | (df_thumb["hist_sim"] > 0)]
-    df_thumb.sort_values(["hist_sim","text_sim"], ascending=[False,False], inplace=True)
-    top_thumb = df_thumb.head(num_matches)
-
-    md2 = (
-        "| Thumbnail | Title | Views | Text % | Visual % |\n"
-        "|:---:      |:---   |---:   |---:    |---:     |\n"
-    )
-    for r in top_thumb.itertuples():
-        link  = f"https://youtu.be/{r.videoId}"
-        img   = f"![]({r.thumb})"
-        md2  += (
-            f"| {img} | [{r.title}]({link}) | {format_views(r.views)} | "
-            f"{r.text_sim:.1f}% | {r.hist_sim:.1f}% |\n"
-        )
-    st.markdown(md2, unsafe_allow_html=True)
+    st.subheader("Table 2 – Thumbnail Matches (Click column headers to sort)")
+    df2 = df_cand[df_cand[["text","hist"]].max(axis=1) > 0].head(num_matches)[
+        ["thumb","title","videoUrl","channel","uploadDate","viewsFmt","text","hist"]
+    ].rename(columns={
+        "thumb":"Thumbnail URL","title":"Title","videoUrl":"URL",
+        "channel":"Channel","uploadDate":"Uploaded","viewsFmt":"Views",
+        "text":"Text %","hist":"Visual %"
+    })
+    st.dataframe(df2, use_container_width=True)
