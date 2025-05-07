@@ -1,4 +1,5 @@
 import re
+import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -176,7 +177,7 @@ def hist_sim(url):
     return sum(min(hist_src[j], h[j]) for j in range(len(h))) / total * 100
 
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    # — per-channel semantic search —
+    # — per-channel semantic & keyword search —
     cand_sem, cand_key = [], []
     for ch in ALLOWED_CHANNELS:
         for q, out in ((src["title"], cand_sem), (pk, cand_key)):
