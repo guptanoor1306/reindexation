@@ -20,11 +20,11 @@ st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 CHANNEL_ID = "UCUUlw3anBIkbW9W44Y-eURw"
 st.sidebar.markdown(f"**Channel ID:** `{CHANNEL_ID}`")
 
-# ── Allowed 83 channels ──
+# ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
     "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
     "UCJFp8uSYCjXOMnkUyb3CQ3Q","UCUyDOdBWhC1MCxEjC46d-zw","UCWHCXSKASuSzao_pplQ7SPw",
-    "UCw5TLrz3qADabwezTEcOmgQ","UC415bOPUcGSamy543abLmRA","UCRzYN32xtBf3Yxsx5BvJWJw",
+    "UCw5TLrz3qADabwezTEcOmgQ","UC415bOPUcGSamy543abLmRA","UCRzYN32xtBf3Yxs5BvJWJw",
     "UCLXo7UDZvByw2ixzpQCufnA","UCMiJRAwDNSNzuYeN2uWa0pA","UCBJycsmduvYEL83R_U4JriQ",
     "UCVOTBwF0vnSxMRIbfSE_K_g","UCSPYNpQ2fHv9HJ-q6MIMaPw","UCUMccND2H_CVS0dMZKCPCXA",
     "UCEhBVAPy-bxmnbNARF-_tvA","UCQQojT_AmVWGb4Eg-QniuBA","UCtinbF-Q-fVthA0qrFQTgXQ",
@@ -52,39 +52,39 @@ ALLOWED_CHANNELS = [
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
-# ── API clients ──
+# ── Secrets & clients ──
 YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
 VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Utility funcs ──
-def parse_iso_duration(dur):  # ISO8601 → seconds
+# ── Helpers ──
+def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
             int(m.group(2) or 0)*60 +
             int(m.group(3) or 0))
 
-def format_views(n):
-    if n>=1_000_000: return f"{n/1_000_000:.1f}M"
-    if n>=  1_000: return f"{n/1_000:.1f}K"
+def format_views(n: int) -> str:
+    if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+    if n >=   1_000: return f"{n/1_000:.1f}K"
     return str(n)
 
 @st.cache_data
-def fetch_my_videos(cid):
+def fetch_my_videos(cid: str) -> list[str]:
     ids, req = [], youtube.search().list(
         part="id", channelId=cid, type="video",
         order="date", maxResults=50
     )
     while req:
         res = req.execute()
-        ids += [i["id"]["videoId"] for i in res.get("items",[])]
+        ids += [i["id"]["videoId"] for i in res.get("items", [])]
         req = youtube.search().list_next(req, res)
     return ids
 
 @st.cache_data
-def fetch_video_details(vids):
+def fetch_video_details(vids: list[str]) -> pd.DataFrame:
     rows = []
     for i in range(0, len(vids), 50):
         chunk = vids[i:i+50]
@@ -92,59 +92,61 @@ def fetch_video_details(vids):
             part="snippet,contentDetails,statistics",
             id=",".join(chunk)
         ).execute()
-        for v in resp.get("items",[]):
+        for v in resp.get("items", []):
             sec = parse_iso_duration(v["contentDetails"]["duration"])
             pub = v["snippet"]["publishedAt"]
             rows.append({
                 "videoId":    v["id"],
                 "title":      v["snippet"]["title"],
-                "type":       "Short" if sec<=180 else "Long-Form",
+                "type":       "Short" if sec <= 180 else "Long-Form",
                 "channel":    v["snippet"]["channelTitle"],
                 "uploadDate": datetime.fromisoformat(pub.rstrip("Z")).date().isoformat(),
                 "thumb":      v["snippet"]["thumbnails"]["high"]["url"],
-                "views":      int(v["statistics"].get("viewCount",0))
+                "views":      int(v["statistics"].get("viewCount", 0))
             })
     return pd.DataFrame(rows)
 
 @st.cache_data
-def get_embedding(text):
+def get_embedding(text: str) -> np.ndarray:
     resp = openai_cli.embeddings.create(model="text-embedding-ada-002", input=text)
     return np.array(resp.data[0].embedding, dtype=np.float32)
 
-def cosine_sim(a,b):
-    return float((a@b)/(np.linalg.norm(a)*np.linalg.norm(b)))*100.0
+def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+    return float((a @ b) / (np.linalg.norm(a)*np.linalg.norm(b))) * 100.0
 
-def extract_text_via_vision(url):
+def extract_text_via_vision(url: str) -> str:
     r = requests.post(
         f"https://vision.googleapis.com/v1/images:annotate?key={VISION_KEY}",
         json={"requests":[{"image":{"source":{"imageUri":url}},
                            "features":[{"type":"TEXT_DETECTION","maxResults":1}]}]}
     ).json()
-    try: return r["responses"][0]["fullTextAnnotation"]["text"]
-    except: return ""
+    try:
+        return r["responses"][0]["fullTextAnnotation"]["text"]
+    except:
+        return ""
 
 @st.cache_data(show_spinner=False)
-def get_intro_text(vid, secs):
-    tdir = tempfile.mkdtemp()
-    out  = os.path.join(tdir,f"{vid}.webm")
+def get_intro_text(video_id: str, seconds: int) -> str:
+    tmpdir = tempfile.mkdtemp()
+    out    = os.path.join(tmpdir, f"{video_id}.webm")
     try:
         subprocess.run([
             "yt-dlp","-f","bestaudio",
-            "--download-sections",f"*00:00:00-00:00:{secs:02d}",
-            "-o",out,f"https://youtu.be/{vid}"
+            "--download-sections", f"*00:00:00-00:00:{seconds:02d}",
+            "-o", out, f"https://youtu.be/{video_id}"
         ], check=True)
-        with open(out,"rb") as f:
+        with open(out, "rb") as f:
             return openai_cli.audio.transcriptions.create(model="whisper-1", file=f).text
-    except: 
+    except:
         return ""
     finally:
-        shutil.rmtree(tdir,ignore_errors=True)
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
-# ── Sidebar ──
-content_type = st.sidebar.selectbox("Filter by:",["Long-Form (>3m)","Shorts (≤3m)"])
-num_matches  = st.sidebar.number_input("Results to show",1,10,5)
+# ── Sidebar inputs ──
+content_type = st.sidebar.selectbox("Filter by:", ["Long-Form (>3 min)", "Shorts (≤3 min)"])
+num_matches  = st.sidebar.number_input("Results to show", 1, 10, 5)
 
-# ── Load your uploads ──
+# ── Load & filter your uploads ──
 with st.spinner("Loading your uploads…"):
     my_ids = fetch_my_videos(CHANNEL_ID)
 df_all = fetch_video_details(my_ids)
@@ -152,124 +154,129 @@ if df_all.empty:
     st.error("No uploads found."); st.stop()
 
 want_short = content_type.startswith("Shorts")
-df = df_all[df_all["type"]==( "Short" if want_short else "Long-Form" )]
+df = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
     st.warning("No videos of that type."); st.stop()
 
-# ── 1) pick your video ──
-st.subheader("1) Choose one of your videos")
-sel = st.selectbox("Your videos",df["title"])
-src = df[df["title"]==sel].iloc[0]
-st.image(src["thumb"],width=320,caption=sel)
+# ── 1) Select & display your video ──
+st.subheader("1) Select one of your videos")
+sel = st.selectbox("Your videos", df["title"].tolist())
+src = df[df["title"] == sel].iloc[0]
+st.image(src["thumb"], use_container_width=True, caption=sel)
 st.caption(f"{src['channel']} · {src['uploadDate']} · {format_views(src['views'])} views")
 
-# ── 2) primary keyword ──
-st.subheader("2) Enter primary keyword")
+# ── 2) Enter a primary keyword ──
+st.subheader("2) Enter a primary keyword (mandatory)")
 pk = st.text_input("Keyword")
 if not pk:
     st.info("Please enter a keyword."); st.stop()
 
-# ── precompute ──
+# ── Precompute embeddings & visuals ──
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
-img      = Image.open(requests.get(src["thumb"],stream=True).raw)\
-            .convert("RGB").resize((256,256))
-hist_src = img.histogram(); total=sum(hist_src)
-def hist_sim(u):
-    i2       = Image.open(requests.get(u,stream=True).raw)\
-                 .convert("RGB").resize((256,256))
-    h2       = i2.histogram()
-    intersect= sum(min(hist_src[i],h2[i]) for i in range(len(h2)))
-    return intersect/total*100.0
+img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
+               .convert("RGB").resize((256,256))
+hist_src = img.histogram(); total = sum(hist_src)
+def hist_sim(url: str) -> float:
+    img2  = Image.open(requests.get(url, stream=True).raw)\
+                .convert("RGB").resize((256,256))
+    h2    = img2.histogram()
+    inter = sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
+    return inter/total*100.0
 
-debug_logs=[]
-if st.button("3) Run Matches"):
+# ── Helper: render a grid of cards ──
+def render_cards(records, metric_keys):
+    per_row = 4
+    for idx, r in enumerate(records):
+        if idx % per_row == 0:
+            cols = st.columns(per_row)
+        col = cols[idx % per_row]
+        with col:
+            st.image(r["thumb"], use_container_width=True)
+            st.markdown(f"**[{r['title']}](https://youtu.be/{r['videoId']})**")
+            st.caption(f"{r['channel']} · {r['uploadDate']} · {format_views(r['views'])}")
+            for k in metric_keys:
+                label = k.replace("_pct","%").replace("_"," ").title()
+                st.markdown(f"- **{label}**: {r[k]:.1f}%")
 
-    def yt_search(q,dur=None):
-        p=dict(part="snippet",q=q,type="video",order="viewCount",
-               maxResults=50,key=YT_KEY)
-        if dur: p["videoDuration"]=dur
-        debug_logs.append(f"search {q!r} dur={dur}: {p}")
-        items=requests.get("https://youtube.googleapis.com/youtube/v3/search",params=p).json().get("items",[])
-        debug_logs.append(f"→ {len(items)} items")
+# ── 3) Run matches ──
+if st.button("3) Run Title, Thumbnail & Intro Match"):
+    def yt_search(q: str, dur: str = None):
+        params = dict(part="snippet", q=q, type="video",
+                      order="viewCount", maxResults=50, key=YT_KEY)
+        if dur:
+            params["videoDuration"] = dur
+        items = requests.get(
+            "https://youtube.googleapis.com/youtube/v3/search",
+            params=params
+        ).json().get("items", [])
         return items
 
-    # gather IDs
+    # search candidates
     sem_all    = yt_search(src["title"])
-    sem_sh     = yt_search(src["title"],"short")
+    sem_shorts = yt_search(src["title"], "short")
     key_all    = yt_search(pk)
-    key_sh     = yt_search(pk,"short")
-    cand_sem   = [i["id"]["videoId"] 
-                  for i in (sem_all+sem_sh) if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    cand_key   = [i["id"]["videoId"] 
-                  for i in (key_all+key_sh) if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    combined   = list(dict.fromkeys(cand_sem+ cand_key))
-    debug_logs.append(f"combined ids ({len(combined)}):{combined}")
+    key_shorts = yt_search(pk, "short")
+
+    cand_sem = [i["id"]["videoId"] for i in (sem_all + sem_shorts)
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_key = [i["id"]["videoId"] for i in (key_all + key_shorts)
+                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    combined = list(dict.fromkeys(cand_sem + cand_key))
     if not combined:
-        st.warning("No matches found.")
+        st.warning("No matches found."); st.stop()
+
     df_cand = fetch_video_details(combined)
 
-    # metrics
-    df_cand["sem_pct"]      = df_cand["title"].map(lambda t:cosine_sim(emb_src,get_embedding(t)))
-    df_cand["key_pct"]      = df_cand["title"].map(lambda t:fuzz.ratio(pk,t))
+    # compute metrics
+    df_cand["sem_pct"]      = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
+    df_cand["key_pct"]      = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["combined_pct"] = df_cand[["sem_pct","key_pct"]].max(axis=1)
-    df_cand["text_pct"]     = df_cand["thumb"].map(lambda u:fuzz.ratio(text_src,extract_text_via_vision(u)))
+    df_cand["text_pct"]     = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["visual_pct"]   = df_cand["thumb"].map(hist_sim)
-    secs=20 if want_short else 60
-    intro=get_intro_text(src["videoId"],secs)
-    debug_logs.append(f"intro len {len(intro)}")
+
+    secs  = 20 if want_short else 60
+    intro = get_intro_text(src["videoId"], secs)
     if intro:
-        df_cand["intro_title_pct"]     = df_cand["title"].map(lambda t:fuzz.ratio(intro,t))
-        df_cand["intro_thumb_pct"]     = df_cand["thumb"].map(lambda u:fuzz.ratio(intro,extract_text_via_vision(u)))
-        df_cand["intro_combined_pct"]  = df_cand[["intro_title_pct","intro_thumb_pct"]].max(axis=1)
+        df_cand["intro_title_pct"]    = df_cand["title"].map(lambda t: fuzz.ratio(intro, t))
+        df_cand["intro_thumb_pct"]    = df_cand["thumb"].map(lambda u: fuzz.ratio(intro, extract_text_via_vision(u)))
+        df_cand["intro_combined_pct"] = df_cand[["intro_title_pct","intro_thumb_pct"]].max(axis=1)
     else:
-        df_cand[["intro_title_pct","intro_thumb_pct","intro_combined_pct"]]=0
+        df_cand["intro_title_pct"] = df_cand["intro_thumb_pct"] = df_cand["intro_combined_pct"] = 0
 
-    # helper to render cards
-    def render_cards(rows, metrics):
-        per_row=4
-        for idx,r in enumerate(rows):
-            if idx%per_row==0:
-                cols = st.columns(per_row)
-            c = cols[idx%per_row]
-            with c:
-                st.image(r["thumb"],use_column_width=True)
-                st.markdown(f"**[{r['title']}](https://youtu.be/{r['videoId']})**")
-                st.caption(f"{r['channel']} · {r['uploadDate']} · {format_views(r['views'])} views")
-                for k in metrics:
-                    st.markdown(f"- **{k}**: {r[k]:.1f}%")
-
-    # Table 1 cards
+    # ── Table 1: Title Matches ──
     st.subheader("Table 1 – Title Matches")
-    t1l,t1s = st.tabs(["Long-Form","Shorts"])
-    for tab,v in ((t1l,"Long-Form"),(t1s,"Short")):
+    t1l, t1s = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in ((t1l,"Long-Form"),(t1s,"Short")):
         with tab:
-            sub = df_cand[df_cand["type"]==v]
-            top = sub.nlargest(num_matches,"combined_pct")
-            render_cards(top.to_dict("records"), ["sem_pct","key_pct","combined_pct"])
+            subset = df_cand[df_cand["type"] == vtype]
+            topn   = subset.nlargest(num_matches, "combined_pct")
+            render_cards(topn.to_dict("records"), ["sem_pct","key_pct","combined_pct"])
 
-    # Table 2 cards
+    # ── Table 2: Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
-    t2l,t2s = st.tabs(["Long-Form","Shorts"])
-    for tab,v in ((t2l,"Long-Form"),(t2s,"Short")):
+    t2l, t2s = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in ((t2l,"Long-Form"),(t2s,"Short")):
         with tab:
-            sub = df_cand[(df_cand["type"]==v)&((df_cand["text_pct"]>0)|(df_cand["visual_pct"]>0))]
-            top = sub.nlargest(num_matches,["visual_pct","text_pct"])
-            render_cards(top.to_dict("records"), ["text_pct","visual_pct"])
+            subset = df_cand[
+                (df_cand["type"] == vtype) &
+                ((df_cand["text_pct"] > 0) | (df_cand["visual_pct"] > 0))
+            ]
+            topn = subset.nlargest(num_matches, ["visual_pct","text_pct"])
+            render_cards(topn.to_dict("records"), ["text_pct","visual_pct"])
 
-    # Table 3 cards
+    # ── Table 3: Intro Text Matches ──
     st.subheader("Table 3 – Intro Text Matches")
     if not intro:
-        st.warning("No intro transcript.")
+        st.warning("No intro transcript available.")
     else:
-        t3l,t3s = st.tabs(["Long-Form","Shorts"])
-        for tab,v in ((t3l,"Long-Form"),(t3s,"Short")):
+        t3l, t3s = st.tabs(["Long-Form Matches","Shorts Matches"])
+        for tab, vtype in ((t3l,"Long-Form"),(t3s,"Short")):
             with tab:
-                sub = df_cand[df_cand["type"]==v]
-                top = sub.nlargest(num_matches,"intro_combined_pct")
-                render_cards(top.to_dict("records"), ["intro_title_pct","intro_thumb_pct","intro_combined_pct"])
-
-    # debug logs
-    with st.expander("Debug logs"):
-        for ln in debug_logs:
-            st.text(ln)
+                subset = df_cand[
+                    (df_cand["type"] == vtype) &
+                    (df_cand["intro_combined_pct"] > 0)
+                ]
+                topn = subset.nlargest(num_matches, "intro_combined_pct")
+                render_cards(topn.to_dict("records"),
+                             ["intro_title_pct","intro_thumb_pct","intro_combined_pct"])
