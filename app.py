@@ -8,54 +8,41 @@ from googleapiclient.discovery import build
 from openai import OpenAI
 from rapidfuzz import fuzz
 from PIL import Image
+from youtube_transcript_api import YouTubeTranscriptApi
 
 st.set_page_config(layout="wide")
 st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 
 # ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
-    "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA",
-    "UCvQECJukTDE2i6aCoMnS-Vg","UCJFp8uSYCjXOMnkUyb3CQ3Q",
-    "UCUyDOdBWhC1MCxEjC46d-zw","UCWHCXSKASuSzao_pplQ7SPw",
-    "UCw5TLrz3qADabwezTEcOmgQ","UC415bOPUcGSamy543abLmRA",
-    "UCRzYN32xtBf3Yxsx5BvJWJw","UCLXo7UDZvByw2ixzpQCufnA",
-    "UCMiJRAwDNSNzuYeN2uWa0pA","UCBJycsmduvYEL83R_U4JriQ",
-    "UCVOTBwF0vnSxMRIbfSE_K_g","UCSPYNpQ2fHv9HJ-q6MIMaPw",
-    "UCUMccND2H_CVS0dMZKCPCXA","UCEhBVAPy-bxmnbNARF-_tvA",
-    "UCQQojT_AmVWGb4Eg-QniuBA","UCtinbF-Q-fVthA0qrFQTgXQ",
-    "UCV6KDgJskWaEckne5aPA0aQ","UCoOae5nYA7VqaXzerajD0lg",
-    "UCPgfM-dk3XAb4T3DtT6Nwsw","UCnpekFV93kB1O0rVqEKSumg",
-    "UC7ZddA__ewP3AtDefjl_tWg","UC3mjMoJuFnjYRBLon_6njbQ",
-    "UCqW8jxh4tH1Z1sWPbkGWL4g","UC3DkFux8Iv-aYnTRWzwaiBA",
-    "UCsNxHPbaCWL1tKw2hxGQD6g","UCPk2s5c4R_d-EUUNvFFODoA",
-    "UCwVEhEzsjLym_u1he4XWFkg","UCvs2mwDS-ZiIeJ01kvzarbQ",
-    "UCAxUtcgLiq_gopO87VaZM5w","UCwAdQUuPT6laN-AQR17fe1g",
-    "UC80Voenx9LIHY7TNwz55x7w","UCBqvATpjSubtNxpqUDj4_cA",
-    "UCvqttS8EzhRq2YWg03qKRCQ","UCODr9HUJ90xtWD-0Xoz4vPw",
-    "UCe6eisvsctSPvBhmincn6kA","UCA295QVkf9O1RQ8_-s3FVXg",
-    "UC4QZ_LsYcvcq7qOsOhpAX4A","UCkw1tYo7k8t-Y99bOXuZwhg",
-    "UCQXwgooTlP6tk2a-u6vgyUA","UCB7GnQlJPIL6rBBqEoX87vA",
-    "UCmGSJVG3mCRXVOP4yZrU1Dw","UC0a_pO439rhcyHBZq3AKdrw",
-    "UCJ24N4O0bP7LGLBDvye7oCA","UCHnyfMqiRRG1u-2MsSQLbXA",
-    "UCvK4bOhULCpmLabd2pDMtnA","UCXbKJML9pVclFHLFzpvBgWw",
-    "UCnmGIkw-KdI0W5siakKPKog","UCWpk9PSGHoJW1hZT4egxTNQ",
-    "UCGq-a57w-aPwyi3pW7XLiHw","UCL_v4tC26PvOFytV1_eEVSg",
-    "UCE4Gn00XZbpWvGUfIslT-tA","UCm5iBOcQ0GET_2FqFI61QDA",
-    "UCLQOtbB1COQwjcCEPB2pa8w","UCqit4NtRDfdEHKX_zgmAwrg",
-    "UCkCGANrihzExmu9QiqZpPlQ","UC9RM-iSvTu1uPJb8X5yp3EQ",
-    "UCdCottK2mn8T7VOHleKCYCg","UCxgAuX3XZROujMmGphN_scA",
-    "UCY1kMZp36IQSyNx_9h4mpCg","UCO3tlaeZ6Z0ZN5frMZI3-uQ",
-    "UCf_XYgupvdx7rA44Ap3uI5w","UCtnItzU7q_bA1eoEBjqcVrw",
-    "UCgNg3vwj3xt7QOrcIDaHdFg","UCggPd3Vf9ooG2r4I_ZNWBzA",
-    "UCQpPo9BNwezg54N9hMFQp6Q","UCvcEBQ0K3UsQ8bzWKHKQmbw",
-    "UCFDxyA1H3VEN0VQwfMe2VMQ","UCVRqLKnUgC4BM3Vu7gZYQcw",
-    "UC8uj-UFGDzAx3RfPzeRqnyA","UC7KbIaEOuY7H2j-cvhJ3mYA",
-    "UCvBy3qcISSOcrbqPhqmG4Xw","UCAL3JXZSzSm8AlZyD3nQdBA",
-    "UCtYKe7-XbaDjpUwcU5x0bLg","UCODHrzPMGbNv67e84WDZhQQ",
-    "UCkjrBN_GAjFJyVvjcI07KkQ","UCii9ezsUa_mBiSdw0PtSOaw",
-    "UCR0tBVaZPaSqmdqkw7oYmcw","UCPjHhJ3fxgcV5Gv5uVAhNEA",
-    "UCT0dmfFCLWuVKPWZ6wcdKyg","UCczAxLCL79gHXKYaEc9k-ZQ",
-    "UCqykZoZjaOPb6i_Y5gk0kLQ",
+    "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
+    "UCJFp8uSYCjXOMnkUyb3CQ3Q","UCUyDOdBWhC1MCxEjC46d-zw","UCWHCXSKASuSzao_pplQ7SPw",
+    "UCw5TLrz3qADabwezTEcOmgQ","UC415bOPUcGSamy543abLmRA","UCRzYN32xtBf3Yxsx5BvJWJw",
+    "UCLXo7UDZvByw2ixzpQCufnA","UCMiJRAwDNSNzuYeN2uWa0pA","UCBJycsmduvYEL83R_U4JriQ",
+    "UCVOTBwF0vnSxMRIbfSE_K_g","UCSPYNpQ2fHv9HJ-q6MIMaPw","UCUMccND2H_CVS0dMZKCPCXA",
+    "UCEhBVAPy-bxmnbNARF-_tvA","UCQQojT_AmVWGb4Eg-QniuBA","UCtinbF-Q-fVthA0qrFQTgXQ",
+    "UCV6KDgJskWaEckne5aPA0aQ","UCoOae5nYA7VqaXzerajD0lg","UCPgfM-dk3XAb4T3DtT6Nwsw",
+    "UCnpekFV93kB1O0rVqEKSumg","UC7ZddA__ewP3AtDefjl_tWg","UC3mjMoJuFnjYRBLon_6njbQ",
+    "UCqW8jxh4tH1Z1sWPbkGWL4g","UC3DkFux8Iv-aYnTRWzwaiBA","UCsNxHPbaCWL1tKw2hxGQD6g",
+    "UCPk2s5c4R_d-EUUNvFFODoA","UCwVEhEzsjLym_u1he4XWFkg","UCvs2mwDS-ZiIeJ01kvzarbQ",
+    "UCAxUtcgLiq_gopO87VaZM5w","UCwAdQUuPT6laN-AQR17fe1g","UC80Voenx9LIHY7TNwz55x7w",
+    "UCBqvATpjSubtNxpqUDj4_cA","UCvqttS8EzhRq2YWg03qKRCQ","UCODr9HUJ90xtWD-0Xoz4vPw",
+    "UCe6eisvsctSPvBhmincn6kA","UCA295QVkf9O1RQ8_-s3FVXg","UC4QZ_LsYcvcq7qOsOhpAX4A",
+    "UCkw1tYo7k8t-Y99bOXuZwhg","UCQXwgooTlP6tk2a-u6vgyUA","UCB7GnQlJPIL6rBBqEoX87vA",
+    "UCmGSJVG3mCRXVOP4yZrU1Dw","UC0a_pO439rhcyHBZq3AKdrw","UCJ24N4O0bP7LGLBDvye7oCA",
+    "UCHnyfMqiRRG1u-2MsSQLbXA","UCvK4bOhULCpmLabd2pDMtnA","UCXbKJML9pVclFHLFzpvBgWw",
+    "UCnmGIkw-KdI0W5siakKPKog","UCWpk9PSGHoJW1hZT4egxTNQ","UCGq-a57w-aPwyi3pW7XLiHw",
+    "UCL_v4tC26PvOFytV1_eEVSg","UCE4Gn00XZbpWvGUfIslT-tA","UCm5iBOcQ0GET_2FqFI61QDA",
+    "UCLQOtbB1COQwjcCEPB2pa8w","UCqit4NtRDfdEHKX_zgmAwrg","UCkCGANrihzExmu9QiqZpPlQ",
+    "UC9RM-iSvTu1uPJb8X5yp3EQ","UCdCottK2mn8T7VOHleKCYCg","UCxgAuX3XZROujMmGphN_scA",
+    "UCY1kMZp36IQSyNx_9h4mpCg","UCO3tlaeZ6Z0ZN5frMZI3-uQ","UCf_XYgupvdx7rA44Ap3uI5w",
+    "UCtnItzU7q_bA1eoEBjqcVrw","UCgNg3vwj3xt7QOrcIDaHdFg","UCggPd3Vf9ooG2r4I_ZNWBzA",
+    "UCQpPo9BNwezg54N9hMFQp6Q","UCvcEBQ0K3UsQ8bzWKHKQmbw","UCFDxyA1H3VEN0VQwfMe2VMQ",
+    "UCVRqLKnUgC4BM3Vu7gZYQcw","UC8uj-UFGDzAx3RfPzeRqnyA","UC7KbIaEOuY7H2j-cvhJ3mYA",
+    "UCvBy3qcISSOcrbqPhqmG4Xw","UCAL3JXZSzSm8AlZyD3nQdBA","UCtYKe7-XbaDjpUwcU5x0bLg",
+    "UCODHrzPMGbNv67e84WDZhQQ","UCkjrBN_GAjFJyVvjcI07KkQ","UCii9ezsUa_mBiSdw0PtSOaw",
+    "UCR0tBVaZPaSqmdqkw7oYmcw","UCPjHhJ3fxgcV5Gv5uVAhNEA","UCT0dmfFCLWuVKPWZ6wcdKyg",
+    "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ",
 ]
 
 # ── Secrets & clients ──
@@ -127,6 +114,19 @@ def extract_text_via_vision(url):
     r = requests.post(endpoint, json=body).json()
     try: return r["responses"][0]["fullTextAnnotation"]["text"]
     except: return ""
+
+def get_intro_text(video_id, seconds):
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        text, total = "", 0
+        for seg in transcript:
+            if total >= seconds:
+                break
+            text += " " + seg.get("text", "")
+            total += seg.get("duration", 0)
+        return text.strip()
+    except:
+        return ""
 
 # ── Sidebar ──
 channel_id   = st.sidebar.text_input("Your Channel ID")
@@ -238,3 +238,29 @@ if st.button("3) Run Title & Thumbnail Match"):
             f"{r.text:.1f}% | {r.hist:.1f}% |\n"
         )
     st.markdown(md2, unsafe_allow_html=True)
+
+    # ── Table 3 – Intro Text Matches ──
+    st.subheader("Table 3 – Intro Text Matches")
+    seconds = 60 if not want_short else 20
+    intro = get_intro_text(src["videoId"], seconds)
+    if not intro:
+        st.warning("No transcript available for the intro segment.")
+    else:
+        df_cand["intro_title_sim"] = df_cand["title"].map(lambda t: fuzz.ratio(intro, t))
+        df_cand["thumb_text"]      = df_cand["thumb"].map(lambda u: extract_text_via_vision(u))
+        df_cand["intro_thumb_sim"] = df_cand["thumb_text"].map(lambda x: fuzz.ratio(intro, x))
+        df_cand["intro_score"]     = df_cand[["intro_title_sim","intro_thumb_sim"]].max(axis=1)
+        df3 = df_cand.sort_values("intro_score", ascending=False).head(num_matches)
+
+        md3 = (
+            "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
+            "|:---   |:---   |:---   |---:|---:|---:|---:|\n"
+        )
+        for r in df3.itertuples():
+            url = f"https://youtu.be/{r.videoId}"
+            md3 += (
+                f"| [{r.title}]({url}) | {r.channel} | {r.uploadDate} | "
+                f"{format_views(r.views)} | {r.intro_title_sim:.1f}% | "
+                f"{r.intro_thumb_sim:.1f}% | {r.intro_score:.1f}% |\n"
+            )
+        st.markdown(md3, unsafe_allow_html=True)
