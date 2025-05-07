@@ -56,7 +56,7 @@ VISION_KEY = st.secrets["VISION"]["API_KEY"]
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
-# ── Helpers ──
+# ── Helper functions ──
 def parse_iso_duration(dur: str) -> int:
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
@@ -273,4 +273,46 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     # ── Table 2 – Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
     t2_l, t2_s = st.tabs(["Long-Form Matches","Shorts Matches"])
-    for tab
+    for tab, vtype in [(t2_l,"Long-Form"),(t2_s,"Short")]:
+        with tab:
+            subset = df_cand[
+                (df_cand["type"] == vtype) &
+                ((df_cand["Text %"] > 0) | (df_cand["Visual %"] > 0))
+            ]
+            topn   = subset.sort_values(
+                ["Visual %","Text %"], ascending=[False,False]
+            ).head(num_matches)
+            md     = "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
+            md    += "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
+            for _, r in topn.iterrows():
+                md += (
+                    f"| ![]({r['thumb']}) | [{r['title']}](https://youtu.be/{r.videoId}) | "
+                    f"{r['channel']} | {r['uploadDate']} | {format_views(r['views'])} | "
+                    f"{r['Text %']:.1f}% | {r['Visual %']:.1f}% |\n"
+                )
+            st.markdown(md, unsafe_allow_html=True)
+
+    # ── Table 3 – Intro Text Matches ──
+    st.subheader("Table 3 – Intro Text Matches")
+    if not intro:
+        st.warning("No audio transcript available.")
+    else:
+        t3_l, t3_s = st.tabs(["Long-Form Matches","Shorts Matches"])
+        for tab, vtype in [(t3_l,"Long-Form"),(t3_s,"Short")]:
+            with tab:
+                subset = df_cand[df_cand["type"] == vtype]
+                topn   = subset.nlargest(num_matches, "Intro Combined %")
+                md     = "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
+                md    += "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
+                for _, r in topn.iterrows():
+                    md += (
+                        f"| [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
+                        f"{r['uploadDate']} | {format_views(r['views'])} | "
+                        f"{r['Intro→Title %']:.1f}% | {r['Intro→ThumbText %']:.1f}% | {r['Intro Combined %']:.1f}% |\n"
+                    )
+                st.markdown(md, unsafe_allow_html=True)
+
+    # ── Debug logs ──
+    with st.expander("Debug logs"):
+        for line in debug_logs:
+            st.text(line)
