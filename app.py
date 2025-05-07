@@ -52,7 +52,7 @@ ALLOWED_CHANNELS = [
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
-# ── Secrets & clients ──
+# ── Secrets & API clients ──
 YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
 VISION_KEY = st.secrets["VISION"]["API_KEY"]
@@ -158,14 +158,15 @@ df = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
     st.warning("No videos of that type."); st.stop()
 
-# ── 1) Select & display your video ──
+# ── 1) Select your video ──
 st.subheader("1) Select one of your videos")
 sel = st.selectbox("Your videos", df["title"].tolist())
 src = df[df["title"] == sel].iloc[0]
-st.image(src["thumb"], use_container_width=True, caption=sel)
+# keep thumbnail at a fixed width
+st.image(src["thumb"], width=300, caption=sel)
 st.caption(f"{src['channel']} · {src['uploadDate']} · {format_views(src['views'])} views")
 
-# ── 2) Enter a primary keyword ──
+# ── 2) Enter primary keyword ──
 st.subheader("2) Enter a primary keyword (mandatory)")
 pk = st.text_input("Keyword")
 if not pk:
@@ -179,25 +180,25 @@ img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
 hist_src = img.histogram(); total = sum(hist_src)
 def hist_sim(url: str) -> float:
     img2  = Image.open(requests.get(url, stream=True).raw)\
-                .convert("RGB").resize((256,256))
+              .convert("RGB").resize((256,256))
     h2    = img2.histogram()
     inter = sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
     return inter/total*100.0
 
-# ── Helper: render a grid of cards ──
-def render_cards(records, metric_keys):
+# ── Helper: render cards ──
+def render_cards(records, metrics):
     per_row = 4
     for idx, r in enumerate(records):
         if idx % per_row == 0:
             cols = st.columns(per_row)
-        col = cols[idx % per_row]
-        with col:
+        c = cols[idx % per_row]
+        with c:
             st.image(r["thumb"], use_container_width=True)
             st.markdown(f"**[{r['title']}](https://youtu.be/{r['videoId']})**")
             st.caption(f"{r['channel']} · {r['uploadDate']} · {format_views(r['views'])}")
-            for k in metric_keys:
-                label = k.replace("_pct","%").replace("_"," ").title()
-                st.markdown(f"- **{label}**: {r[k]:.1f}%")
+            for m in metrics:
+                label = m.replace("_pct","%").replace("_"," ").title()
+                st.markdown(f"- **{label}**: {r[m]:.1f}%")
 
 # ── 3) Run matches ──
 if st.button("3) Run Title, Thumbnail & Intro Match"):
@@ -206,23 +207,21 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
                       order="viewCount", maxResults=50, key=YT_KEY)
         if dur:
             params["videoDuration"] = dur
-        items = requests.get(
+        return requests.get(
             "https://youtube.googleapis.com/youtube/v3/search",
             params=params
         ).json().get("items", [])
-        return items
 
-    # search candidates
+    # gather candidates
     sem_all    = yt_search(src["title"])
-    sem_shorts = yt_search(src["title"], "short")
+    sem_sh     = yt_search(src["title"], "short")
     key_all    = yt_search(pk)
-    key_shorts = yt_search(pk, "short")
-
-    cand_sem = [i["id"]["videoId"] for i in (sem_all + sem_shorts)
-                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    cand_key = [i["id"]["videoId"] for i in (key_all + key_shorts)
-                if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
-    combined = list(dict.fromkeys(cand_sem + cand_key))
+    key_sh     = yt_search(pk, "short")
+    cand_sem   = [i["id"]["videoId"] for i in (sem_all+sem_sh)
+                  if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    cand_key   = [i["id"]["videoId"] for i in (key_all+key_sh)
+                  if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+    combined   = list(dict.fromkeys(cand_sem + cand_key))
     if not combined:
         st.warning("No matches found."); st.stop()
 
@@ -244,38 +243,43 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     else:
         df_cand["intro_title_pct"] = df_cand["intro_thumb_pct"] = df_cand["intro_combined_pct"] = 0
 
-    # ── Table 1: Title Matches ──
-    st.subheader("Table 1 – Title Matches")
-    t1l, t1s = st.tabs(["Long-Form Matches","Shorts Matches"])
-    for tab, vtype in ((t1l,"Long-Form"),(t1s,"Short")):
-        with tab:
-            subset = df_cand[df_cand["type"] == vtype]
-            topn   = subset.nlargest(num_matches, "combined_pct")
-            render_cards(topn.to_dict("records"), ["sem_pct","key_pct","combined_pct"])
-
-    # ── Table 2: Thumbnail Matches ──
-    st.subheader("Table 2 – Thumbnail Matches")
-    t2l, t2s = st.tabs(["Long-Form Matches","Shorts Matches"])
-    for tab, vtype in ((t2l,"Long-Form"),(t2s,"Short")):
+    # ── Table 1: Title Matches (combined_pct > 75%) ──
+    st.subheader("Table 1 – Title Matches (Combined % > 75%)")
+    t1l, t1s = st.tabs(["Long-Form","Shorts"])
+    for tab, vt in ((t1l,"Long-Form"),(t1s,"Short")):
         with tab:
             subset = df_cand[
-                (df_cand["type"] == vtype) &
-                ((df_cand["text_pct"] > 0) | (df_cand["visual_pct"] > 0))
+                (df_cand["type"]==vt) &
+                (df_cand["combined_pct"]>75)
             ]
-            topn = subset.nlargest(num_matches, ["visual_pct","text_pct"])
-            render_cards(topn.to_dict("records"), ["text_pct","visual_pct"])
+            topn = subset.nlargest(num_matches, "combined_pct")
+            render_cards(topn.to_dict("records"),
+                         ["sem_pct","key_pct","combined_pct"])
 
-    # ── Table 3: Intro Text Matches ──
-    st.subheader("Table 3 – Intro Text Matches")
+    # ── Table 2: Thumbnail Matches (visual_pct > 60%) ──
+    st.subheader("Table 2 – Thumbnail Matches (Visual % > 60%)")
+    t2l, t2s = st.tabs(["Long-Form","Shorts"])
+    for tab, vt in ((t2l,"Long-Form"),(t2s,"Short")):
+        with tab:
+            subset = df_cand[
+                (df_cand["type"]==vt) &
+                (df_cand["visual_pct"]>60)
+            ]
+            topn = subset.nlargest(num_matches, "visual_pct")
+            render_cards(topn.to_dict("records"),
+                         ["text_pct","visual_pct"])
+
+    # ── Table 3: Intro Text Matches (intro_combined_pct > 10%) ──
+    st.subheader("Table 3 – Intro Text Matches (Intro Combined % > 10%)")
     if not intro:
         st.warning("No intro transcript available.")
     else:
-        t3l, t3s = st.tabs(["Long-Form Matches","Shorts Matches"])
-        for tab, vtype in ((t3l,"Long-Form"),(t3s,"Short")):
+        t3l, t3s = st.tabs(["Long-Form","Shorts"])
+        for tab, vt in ((t3l,"Long-Form"),(t3s,"Short")):
             with tab:
                 subset = df_cand[
-                    (df_cand["type"] == vtype) &
-                    (df_cand["intro_combined_pct"] > 0)
+                    (df_cand["type"]==vt) &
+                    (df_cand["intro_combined_pct"]>10)
                 ]
                 topn = subset.nlargest(num_matches, "intro_combined_pct")
                 render_cards(topn.to_dict("records"),
