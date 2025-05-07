@@ -53,31 +53,31 @@ youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
 # ── Helpers ──
-def parse_iso_duration(dur: str) -> int:
+def parse_iso_duration(dur):
     m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     return (int(m.group(1) or 0)*3600 +
             int(m.group(2) or 0)*60 +
             int(m.group(3) or 0))
 
-def format_views(n: int) -> str:
+def format_views(n):
     if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
     if n >=   1_000: return f"{n/1_000:.1f}K"
     return str(n)
 
 @st.cache_data
-def fetch_my_videos(cid: str) -> list[str]:
+def fetch_my_videos(cid):
     ids, req = [], youtube.search().list(
         part="id", channelId=cid, type="video",
         order="date", maxResults=50
     )
     while req:
         res = req.execute()
-        ids += [i["id"]["videoId"] for i in res.get("items",[])]
+        ids += [i["id"]["videoId"] for i in res["items"]]
         req = youtube.search().list_next(req, res)
     return ids
 
 @st.cache_data
-def fetch_video_details(vids: list[str]) -> pd.DataFrame:
+def fetch_video_details(vids):
     rows = []
     for i in range(0, len(vids), 50):
         chunk = vids[i:i+50]
@@ -85,7 +85,7 @@ def fetch_video_details(vids: list[str]) -> pd.DataFrame:
             part="snippet,contentDetails,statistics",
             id=",".join(chunk)
         ).execute()
-        for v in resp.get("items", []):
+        for v in resp["items"]:
             sec = parse_iso_duration(v["contentDetails"]["duration"])
             pub = v["snippet"]["publishedAt"]
             rows.append({
@@ -95,20 +95,20 @@ def fetch_video_details(vids: list[str]) -> pd.DataFrame:
                 "channel":    v["snippet"]["channelTitle"],
                 "uploadDate": datetime.fromisoformat(pub.rstrip("Z")).date().isoformat(),
                 "thumb":      v["snippet"]["thumbnails"]["high"]["url"],
-                "views":      int(v["statistics"].get("viewCount",0)),
+                "views":      int(v["statistics"].get("viewCount", 0)),
                 "type":       "Short" if sec <= 180 else "Long-Form"
             })
     return pd.DataFrame(rows)
 
 @st.cache_data
-def get_embedding(text: str) -> np.ndarray:
+def get_embedding(text):
     resp = openai_cli.embeddings.create(model="text-embedding-ada-002", input=text)
     return np.array(resp.data[0].embedding, dtype=np.float32)
 
-def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+def cosine_sim(a, b):
     return float((a @ b) / (np.linalg.norm(a)*np.linalg.norm(b))) * 100.0
 
-def extract_text_via_vision(url: str) -> str:
+def extract_text_via_vision(url):
     r = requests.post(
         f"https://vision.googleapis.com/v1/images:annotate?key={VISION_KEY}",
         json={"requests":[{"image":{"source":{"imageUri":url}},
@@ -119,7 +119,7 @@ def extract_text_via_vision(url: str) -> str:
     except:
         return ""
 
-def get_intro_text(video_id: str, seconds: int) -> str:
+def get_intro_text(video_id, seconds):
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         text, total = "", 0
@@ -168,21 +168,21 @@ pk = st.text_input("Primary keyword")
 if not pk:
     st.info("Enter a primary keyword."); st.stop()
 
-# ── Precompute embeddings & visuals ──
+# Precompute
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
 img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
                .convert("RGB").resize((256,256))
 hist_src = img.histogram(); total = sum(hist_src)
-def hist_sim(u: str) -> float:
-    i = Image.open(requests.get(u, stream=True).raw)\
-             .convert("RGB").resize((256,256))
-    h = i.histogram()
-    inter = sum(min(hist_src[j], h[j]) for j in range(len(h)))
+def hist_sim(url):
+    img2 = Image.open(requests.get(url, stream=True).raw)\
+                .convert("RGB").resize((256,256))
+    hist = img2.histogram()
+    inter = sum(min(hist_src[i], hist[i]) for i in range(len(hist)))
     return inter/total*100
 
-if st.button("3) Run Title, Thumbnail & Intro Match"):
-    def yt_search(q: str):
+if st.button("3) Run Title & Thumbnail Match"):
+    def yt_search(q):
         return requests.get(
             "https://youtube.googleapis.com/youtube/v3/search",
             params=dict(part="snippet",q=q,type="video",
@@ -200,15 +200,14 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         st.warning("No matches found."); st.stop()
 
     df_cand = fetch_video_details(combined)
-
-    # ── Table 1 ──
     df_cand["sem"]   = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["score"] = df_cand[["sem","key"]].max(axis=1)
     df_cand.sort_values("score", ascending=False, inplace=True)
-    top1 = df_cand.head(num_matches)
 
+    # ── Table 1 ──
     st.subheader("Table 1 – Title Matches")
+    top1 = df_cand.head(num_matches)
     md1 = (
         "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
         "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
@@ -225,7 +224,7 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
     st.subheader("Table 2 – Thumbnail Matches")
     df_cand["text"] = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["hist"] = df_cand["thumb"].map(hist_sim)
-    df2 = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)]
+    df2 = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)].copy()
     df2.sort_values(["hist","text"], ascending=[False,False], inplace=True)
     top2 = df2.head(num_matches)
 
@@ -245,22 +244,22 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
 
     # ── Table 3 – Intro Text Matches ──
     st.subheader("Table 3 – Intro Text Matches")
-    secs = 20 if content_type.startswith("Shorts") else 60
+    secs = 20 if want_short else 60
     intro = get_intro_text(src["videoId"], secs)
     if not intro:
         st.warning("No transcript available for the intro segment.")
     else:
         df_cand["intro_title_sim"] = df_cand["title"].map(lambda t: fuzz.ratio(intro, t))
-        df_cand["thumb_text"]      = df_cand["thumb"].map(extract_text_via_vision)
+        df_cand["thumb_text"]      = df_cand["thumb"].map(lambda u: extract_text_via_vision(u))
         df_cand["intro_thumb_sim"] = df_cand["thumb_text"].map(lambda x: fuzz.ratio(intro, x))
         df_cand["intro_score"]     = df_cand[["intro_title_sim","intro_thumb_sim"]].max(axis=1)
-        top3 = df_cand.sort_values("intro_score", ascending=False).head(num_matches)
+        df3 = df_cand.sort_values("intro_score", ascending=False).head(num_matches)
 
         md3 = (
             "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
             "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
         )
-        for r in top3.itertuples():
+        for r in df3.itertuples():
             url = f"https://youtu.be/{r.videoId}"
             md3 += (
                 f"| [{r.title}]({url}) | {r.channel} | {r.uploadDate} | "
