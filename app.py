@@ -127,25 +127,19 @@ def extract_text_via_vision(url: str) -> str:
 def get_intro_text(video_id: str, seconds: int) -> str:
     tmpdir = tempfile.mkdtemp()
     try:
-        m4a_path = os.path.join(tmpdir, f"{video_id}.m4a")
-        wav_path = os.path.join(tmpdir, f"{video_id}_clip.wav")
-        # 1) download best audio
+        out_path = os.path.join(tmpdir, f"{video_id}.webm")
         subprocess.run([
-            "yt-dlp", "-f", "bestaudio",
-            "--extract-audio", "--audio-format", "m4a",
-            "--output", m4a_path,
+            "yt-dlp",
+            "-f", "bestaudio",
+            "--download-sections", f"*00:00:00-00:00:{seconds:02d}",
+            "-o", out_path,
             f"https://youtu.be/{video_id}"
         ], check=True)
-        # 2) trim to <seconds> & convert
-        subprocess.run([
-            "ffmpeg", "-y", "-i", m4a_path,
-            "-t", str(seconds),
-            "-ac", "1", "-ar", "16000",
-            wav_path
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        # 3) whisper transcription
-        with open(wav_path, "rb") as f:
-            resp = openai_cli.audio.transcriptions.create(model="whisper-1", file=f)
+        with open(out_path, "rb") as audio_file:
+            resp = openai_cli.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
         return resp["text"]
     except subprocess.CalledProcessError:
         return ""
