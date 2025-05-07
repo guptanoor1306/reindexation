@@ -19,7 +19,7 @@ st.title("🔍 Zero1 YouTube Title & Thumbnail Matcher")
 # ── Only search within these 83 channels ──
 ALLOWED_CHANNELS = [
     "UCK7tptUDHh-RYDsdxO1-5QQ","UCvJJ_dzjViJCoLf5uKUTwoA","UCvQECJukTDE2i6aCoMnS-Vg",
-    # … (all your other channel IDs) …
+    # … include all other channel IDs …
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
@@ -101,13 +101,15 @@ def extract_text_via_vision(url: str) -> str:
 def get_intro_text(video_id: str, seconds: int) -> str:
     tmpdir = tempfile.mkdtemp()
     try:
-        out = os.path.join(tmpdir, f"{video_id}.webm")
+        out_path = os.path.join(tmpdir, f"{video_id}.webm")
         subprocess.run([
-            "yt-dlp","-f","bestaudio",
+            "yt-dlp",
+            "-f", "bestaudio",
             "--download-sections", f"*00:00:00-00:00:{seconds:02d}",
-            "-o", out, f"https://youtu.be/{video_id}"
+            "-o", out_path,
+            f"https://youtu.be/{video_id}"
         ], check=True)
-        with open(out,"rb") as f:
+        with open(out_path, "rb") as f:
             resp = openai_cli.audio.transcriptions.create(model="whisper-1", file=f)
         return resp.text
     except subprocess.CalledProcessError:
@@ -128,13 +130,13 @@ with st.spinner("Loading your uploads…"):
 if not my_ids:
     st.error("No videos found."); st.stop()
 
-df_all = fetch_video_details(my_ids)
+df_all     = fetch_video_details(my_ids)
 want_short = content_type.startswith("Shorts")
-df        = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
+df         = df_all[df_all["type"] == ("Short" if want_short else "Long-Form")]
 if df.empty:
     st.warning(f"No {content_type} found."); st.stop()
 
-# ── 1) Select & show your video ──
+# ── 1) Select & display your video ──
 st.subheader("1) Select one of your videos")
 sel = st.selectbox("Your videos", df["title"].tolist())
 src = df[df["title"] == sel].iloc[0]
@@ -145,30 +147,33 @@ st.markdown(
     f"**Views:** {format_views(src['views'])}"
 )
 
-# ── 2) Enter keyword ──
+# ── 2) Enter a primary keyword ──
 st.subheader("2) Enter a primary keyword (mandatory)")
 pk = st.text_input("Primary keyword")
 if not pk:
     st.info("Enter a primary keyword."); st.stop()
 
-# ── Precompute ──
+# ── Precompute embeddings & visuals ──
 emb_src  = get_embedding(src["title"])
 text_src = extract_text_via_vision(src["thumb"])
-img      = Image.open(requests.get(src["thumb"], stream=True).raw).convert("RGB").resize((256,256))
+img      = Image.open(requests.get(src["thumb"], stream=True).raw)\
+               .convert("RGB").resize((256,256))
 hist_src = img.histogram(); total = sum(hist_src)
 def hist_sim(url: str) -> float:
-    im2  = Image.open(requests.get(url, stream=True).raw).convert("RGB").resize((256,256))
-    h2   = im2.histogram()
-    inter = sum(min(hist_src[i],h2[i]) for i in range(len(h2)))
+    img2 = Image.open(requests.get(url, stream=True).raw)\
+                .convert("RGB").resize((256,256))
+    h2   = img2.histogram()
+    inter = sum(min(hist_src[i], h2[i]) for i in range(len(h2)))
     return inter/total*100.0
 
-# ── 3) Run match ──
+# ── 3) Run matches ──
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    def yt_search(q):
+    # search candidates
+    def yt_search(q: str):
         return requests.get(
             "https://youtube.googleapis.com/youtube/v3/search",
-            params=dict(part="snippet",q=q,type="video",
-                        order="viewCount",maxResults=50,key=YT_KEY)
+            params=dict(part="snippet", q=q, type="video",
+                        order="viewCount", maxResults=50, key=YT_KEY)
         ).json().get("items", [])
     sem_items = yt_search(src["title"])
     key_items = yt_search(pk)
@@ -179,14 +184,14 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         st.warning("No matches found."); st.stop()
 
     df_cand = fetch_video_details(combined)
-    # Title metrics
+
+    # compute metrics
     df_cand["Sem %"]      = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["Key %"]      = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["Combined %"] = df_cand[["Sem %","Key %"]].max(axis=1)
-    # Thumbnail metrics
     df_cand["Text %"]     = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["Visual %"]   = df_cand["thumb"].map(hist_sim)
-    # Intro metrics
+
     secs  = 20 if want_short else 60
     intro = get_intro_text(src["videoId"], secs)
     if intro:
@@ -198,69 +203,54 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         df_cand["Intro→ThumbText %"] = 0
         df_cand["Intro Combined %"]  = 0
 
-    # ── Summary ──
-    top1_ids = set(df_cand.nlargest(num_matches, "Combined %")["videoId"])
-    top2_ids = set(df_cand.nlargest(num_matches, ["Visual %","Text %"])["videoId"])
-    top3_ids = set(df_cand.nlargest(num_matches, "Intro Combined %")["videoId"])
-    summary_ids = list(top1_ids | top2_ids | top3_ids)
-
-    st.subheader("Summary of Matches")
-    md_sum  = "| Title | Title✓ | Thumb✓ | Intro✓ |\n| --- | :---: | :---: | :---: |\n"
-    for vid in summary_ids:
-        r    = df_cand[df_cand["videoId"]==vid].iloc[0]
-        link = f"[{r['title']}](https://youtu.be/{vid})"
-        md_sum += f"| {link} | {'✓' if vid in top1_ids else '✗'} | {'✓' if vid in top2_ids else '✗'} | {'✓' if vid in top3_ids else '✗'} |\n"
-    st.markdown(md_sum, unsafe_allow_html=True)
-
-    # ── Table 1: Title Matches ──
+    # ── Table 1 – Title Matches ──
     st.subheader("Table 1 – Title Matches")
-    tab_long, tab_short = st.tabs(["Long-Form Matches", "Shorts Matches"])
-    for tab, vid_type in [(tab_long, "Long-Form"), (tab_short, "Short")]:
+    tab1_l, tab1_s = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in [(tab1_l,"Long-Form"),(tab1_s,"Short")]:
         with tab:
-            sub = df_cand[df_cand["type"] == vid_type]
-            top = sub.nlargest(num_matches, "Combined %")
-            md  = "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
-            md += "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
-            for _, r in top.iterrows():
-                md += (
+            subset = df_cand[df_cand["type"]==vtype]
+            topn   = subset.nlargest(num_matches,"Combined %")
+            md = "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
+            md+= "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
+            for _, r in topn.iterrows():
+                md+= (
                     f"| [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
                     f"{r['uploadDate']} | {format_views(r['views'])} | "
                     f"{r['Sem %']:.1f}% | {r['Key %']:.1f}% | {r['Combined %']:.1f}% |\n"
                 )
             st.markdown(md, unsafe_allow_html=True)
 
-    # ── Table 2: Thumbnail Matches ──
+    # ── Table 2 – Thumbnail Matches ──
     st.subheader("Table 2 – Thumbnail Matches")
-    tab_long2, tab_short2 = st.tabs(["Long-Form Matches", "Shorts Matches"])
-    for tab, vid_type in [(tab_long2, "Long-Form"), (tab_short2, "Short")]:
+    tab2_l, tab2_s = st.tabs(["Long-Form Matches","Shorts Matches"])
+    for tab, vtype in [(tab2_l,"Long-Form"),(tab2_s,"Short")]:
         with tab:
-            sub = df_cand[df_cand["type"] == vid_type]
-            sub = sub[(sub["Text %"] > 0) | (sub["Visual %"] > 0)]
-            top = sub.sort_values(["Visual %","Text %"], ascending=[False,False]).head(num_matches)
-            md  = "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
-            md += "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
-            for _, r in top.iterrows():
-                md += (
-                    f"| ![]({r['thumb']}) | [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
-                    f"{r['uploadDate']} | {format_views(r['views'])} | "
+            subset = df_cand[(df_cand["type"]==vtype)&((df_cand["Text %"]>0)|(df_cand["Visual %"]>0))]
+            topn   = subset.sort_values(["Visual %","Text %"],ascending=[False,False]).head(num_matches)
+            md = "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
+            md+= "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
+            for _, r in topn.iterrows():
+                md+= (
+                    f"| ![]({r['thumb']}) | [{r['title']}](https://youtu.be/{r.videoId}) | "
+                    f"{r['channel']} | {r['uploadDate']} | {format_views(r['views'])} | "
                     f"{r['Text %']:.1f}% | {r['Visual %']:.1f}% |\n"
                 )
             st.markdown(md, unsafe_allow_html=True)
 
-    # ── Table 3: Intro Text Matches ──
+    # ── Table 3 – Intro Text Matches ──
     st.subheader("Table 3 – Intro Text Matches")
     if not intro:
         st.warning("No audio transcript available.")
     else:
-        tab_long3, tab_short3 = st.tabs(["Long-Form Matches", "Shorts Matches"])
-        for tab, vid_type in [(tab_long3, "Long-Form"), (tab_short3, "Short")]:
+        tab3_l, tab3_s = st.tabs(["Long-Form Matches","Shorts Matches"])
+        for tab, vtype in [(tab3_l,"Long-Form"),(tab3_s,"Short")]:
             with tab:
-                sub = df_cand[df_cand["type"] == vid_type]
-                top = sub.nlargest(num_matches, "Intro Combined %")
-                md  = "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
-                md += "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
-                for _, r in top.iterrows():
-                    md += (
+                subset = df_cand[df_cand["type"]==vtype]
+                topn   = subset.nlargest(num_matches,"Intro Combined %")
+                md = "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
+                md+= "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
+                for _, r in topn.iterrows():
+                    md+= (
                         f"| [{r['title']}](https://youtu.be/{r.videoId}) | {r['channel']} | "
                         f"{r['uploadDate']} | {format_views(r['views'])} | "
                         f"{r['Intro→Title %']:.1f}% | {r['Intro→ThumbText %']:.1f}% | {r['Intro Combined %']:.1f}% |\n"
