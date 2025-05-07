@@ -140,7 +140,7 @@ def get_intro_text(video_id: str, seconds: int) -> str:
                 model="whisper-1",
                 file=audio_file
             )
-        return resp["text"]
+        return resp.text
     except subprocess.CalledProcessError:
         return ""
     finally:
