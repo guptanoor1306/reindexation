@@ -1,7 +1,6 @@
 import re
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -46,11 +45,10 @@ ALLOWED_CHANNELS = [
     "UCczAxLCL79gHXKYaEc9k-ZQ","UCqykZoZjaOPb6i_Y5gk0kLQ"
 ]
 
-# ── Load secrets & init clients ──
+# ── Secrets & clients ──
 YT_KEY     = st.secrets["YOUTUBE"]["API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI"]["API_KEY"]
 VISION_KEY = st.secrets["VISION"]["API_KEY"]
-
 youtube    = build("youtube", "v3", developerKey=YT_KEY)
 openai_cli = OpenAI(api_key=OPENAI_KEY)
 
@@ -160,8 +158,8 @@ src = df[df["title"] == sel].iloc[0]
 
 st.image(src["thumb"], caption=f"▶️ {sel}", width=300)
 st.markdown(
-    f"**Channel:** {src['channel']}   "
-    f"**Uploaded:** {src['uploadDate']}   "
+    f"**Channel:** {src['channel']}  "
+    f"**Uploaded:** {src['uploadDate']}  "
     f"**Views:** {format_views(src['views'])}"
 )
 
@@ -184,20 +182,18 @@ def hist_sim(u: str) -> float:
     return inter/total*100
 
 if st.button("3) Run Title, Thumbnail & Intro Match"):
-    # ── per-channel semantic & keyword search ──
-    cand_sem, cand_key = [], []
-    for ch in ALLOWED_CHANNELS:
-        sem_resp = youtube.search().list(
-            part="snippet", channelId=ch, q=src["title"],
-            type="video", order="viewCount", maxResults=5
-        ).execute()
-        cand_sem += [item["id"]["videoId"] for item in sem_resp.get("items", [])]
+    def yt_search(q: str):
+        return requests.get(
+            "https://youtube.googleapis.com/youtube/v3/search",
+            params=dict(part="snippet",q=q,type="video",
+                        order="viewCount",maxResults=50,key=YT_KEY)
+        ).json().get("items",[])
 
-        key_resp = youtube.search().list(
-            part="snippet", channelId=ch, q=pk,
-            type="video", order="viewCount", maxResults=5
-        ).execute()
-        cand_key += [item["id"]["videoId"] for item in key_resp.get("items", [])]
+    sem = yt_search(src["title"])
+    cand_sem = [i["id"]["videoId"] for i in sem if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
+
+    key = yt_search(pk)
+    cand_key = [i["id"]["videoId"] for i in key if i["snippet"]["channelId"] in ALLOWED_CHANNELS]
 
     combined = list(dict.fromkeys(cand_sem + cand_key))
     if not combined:
@@ -205,78 +201,51 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
 
     df_cand = fetch_video_details(combined)
 
-    # ── Table 1: Title Matches ──
+    # ── Table 1 ──
     df_cand["sem"]   = df_cand["title"].map(lambda t: cosine_sim(emb_src, get_embedding(t)))
     df_cand["key"]   = df_cand["title"].map(lambda t: fuzz.ratio(pk, t))
     df_cand["score"] = df_cand[["sem","key"]].max(axis=1)
     df_cand.sort_values("score", ascending=False, inplace=True)
     top1 = df_cand.head(num_matches)
 
-    html1 = """
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th align="left">Title</th><th align="left">Channel</th>
-          <th align="left">Uploaded</th><th align="right">Views</th>
-          <th align="right">Sem %</th><th align="right">Key %</th>
-          <th align="right">Combined %</th>
-        </tr>
-      </thead><tbody>
-    """
+    st.subheader("Table 1 – Title Matches")
+    md1 = (
+        "| Title | Channel | Uploaded | Views | Sem % | Key % | Combined % |\n"
+        "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
+    )
     for r in top1.itertuples():
         url = f"https://youtu.be/{r.videoId}"
-        html1 += f"""
-        <tr>
-          <td><a href="{url}" target="_blank">{r.title}</a></td>
-          <td>{r.channel}</td>
-          <td>{r.uploadDate}</td>
-          <td style="text-align:right">{format_views(r.views)}</td>
-          <td style="text-align:right">{r.sem:.1f}%</td>
-          <td style="text-align:right">{r.key:.1f}%</td>
-          <td style="text-align:right">{r.score:.1f}%</td>
-        </tr>
-        """
-    html1 += "</tbody></table>"
-    st.subheader("Table 1 – Title Matches")
-    components.html(html1, height=50 + 40 * len(top1), scrolling=True)
+        md1 += (
+            f"| [{r.title}]({url}) | {r.channel} | {r.uploadDate} | "
+            f"{format_views(r.views)} | {r.sem:.1f}% | {r.key:.1f}% | {r.score:.1f}% |\n"
+        )
+    st.markdown(md1, unsafe_allow_html=True)
 
-    # ── Table 2: Thumbnail Matches ──
+    # ── Table 2 ──
+    st.subheader("Table 2 – Thumbnail Matches")
     df_cand["text"] = df_cand["thumb"].map(lambda u: fuzz.ratio(text_src, extract_text_via_vision(u)))
     df_cand["hist"] = df_cand["thumb"].map(hist_sim)
-    df2 = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)].sort_values(
-        ["hist","text"], ascending=[False,False]
-    ).head(num_matches)
+    df2 = df_cand[(df_cand["text"]>0)|(df_cand["hist"]>0)]
+    df2.sort_values(["hist","text"], ascending=[False,False], inplace=True)
+    top2 = df2.head(num_matches)
 
-    html2 = """
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th align="center">Thumbnail</th><th align="left">Title</th>
-          <th align="left">Channel</th><th align="left">Uploaded</th>
-          <th align="right">Views</th><th align="right">Text %</th>
-          <th align="right">Visual %</th>
-        </tr>
-      </thead><tbody>
-    """
-    for r in df2.itertuples():
-        url = f"https://youtu.be/{r.videoId}"
-        html2 += f"""
-        <tr>
-          <td style="text-align:center"><img src="{r.thumb}" width="120"></td>
-          <td><a href="{url}" target="_blank">{r.title}</a></td>
-          <td>{r.channel}</td>
-          <td>{r.uploadDate}</td>
-          <td style="text-align:right">{format_views(r.views)}</td>
-          <td style="text-align:right">{r.text:.1f}%</td>
-          <td style="text-align:right">{r.hist:.1f}%</td>
-        </tr>
-        """
-    html2 += "</tbody></table>"
-    st.subheader("Table 2 – Thumbnail Matches")
-    components.html(html2, height=80 + 50 * len(df2), scrolling=True)
+    md2 = (
+        "| Thumbnail | Title | Channel | Uploaded | Views | Text % | Visual % |\n"
+        "| :---: | --- | --- | :---: | ---: | ---: | ---: |\n"
+    )
+    for r in top2.itertuples():
+        thumb_md = f"![]({r.thumb})"
+        url      = f"https://youtu.be/{r.videoId}"
+        md2 += (
+            f"| {thumb_md} | [{r.title}]({url}) | {r.channel} | "
+            f"{r.uploadDate} | {format_views(r.views)} | "
+            f"{r.text:.1f}% | {r.hist:.1f}% |\n"
+        )
+    st.markdown(md2, unsafe_allow_html=True)
 
-    # ── Table 3: Intro Text Matches ──
-    secs = 20 if want_short else 60
+    # ── Table 3 – Intro Text Matches ──
+    st.subheader("Table 3 – Intro Text Matches")
+    secs = 20 if content_type.startswith("Shorts") else 60
     intro = get_intro_text(src["videoId"], secs)
     if not intro:
         st.warning("No transcript available for the intro segment.")
@@ -287,31 +256,15 @@ if st.button("3) Run Title, Thumbnail & Intro Match"):
         df_cand["intro_score"]     = df_cand[["intro_title_sim","intro_thumb_sim"]].max(axis=1)
         top3 = df_cand.sort_values("intro_score", ascending=False).head(num_matches)
 
-        html3 = """
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr>
-              <th align="left">Title</th><th align="left">Channel</th>
-              <th align="left">Uploaded</th><th align="right">Views</th>
-              <th align="right">Intro→Title %</th>
-              <th align="right">Intro→ThumbText %</th>
-              <th align="right">Combined %</th>
-            </tr>
-          </thead><tbody>
-        """
+        md3 = (
+            "| Title | Channel | Uploaded | Views | Intro→Title % | Intro→ThumbText % | Combined % |\n"
+            "| --- | --- | --- | ---: | ---: | ---: | ---: |\n"
+        )
         for r in top3.itertuples():
             url = f"https://youtu.be/{r.videoId}"
-            html3 += f"""
-            <tr>
-              <td><a href="{url}" target="_blank">{r.title}</a></td>
-              <td>{r.channel}</td>
-              <td>{r.uploadDate}</td>
-              <td style="text-align:right">{format_views(r.views)}</td>
-              <td style="text-align:right">{r.intro_title_sim:.1f}%</td>
-              <td style="text-align:right">{r.intro_thumb_sim:.1f}%</td>
-              <td style="text-align:right">{r.intro_score:.1f}%</td>
-            </tr>
-            """
-        html3 += "</tbody></table>"
-        st.subheader("Table 3 – Intro Text Matches")
-        components.html(html3, height=50 + 40 * len(top3), scrolling=True)
+            md3 += (
+                f"| [{r.title}]({url}) | {r.channel} | {r.uploadDate} | "
+                f"{format_views(r.views)} | {r.intro_title_sim:.1f}% | "
+                f"{r.intro_thumb_sim:.1f}% | {r.intro_score:.1f}% |\n"
+            )
+        st.markdown(md3, unsafe_allow_html=True)
